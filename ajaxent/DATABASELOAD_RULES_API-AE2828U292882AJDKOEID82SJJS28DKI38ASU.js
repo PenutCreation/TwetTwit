@@ -6,6 +6,11 @@ let currentPage = 0;
 let currentMediaType = null;
 let allPosts = [];
 let displayedPosts = new Set();
+let DATABASEPOSTS = []; // Initialize as empty array
+
+// Store all registered users in localStorage
+const USERS_KEY = 'meko-registered-users';
+const CURRENT_USER_KEY = 'meko-current-user';
 
 // DOM Elements
 const elements = {
@@ -79,105 +84,7 @@ const elements = {
     userAvatar: document.querySelector('#userAvatar img')
 };
 
-// Store all registered users in localStorage
-const USERS_KEY = 'meko-registered-users';
-const CURRENT_USER_KEY = 'meko-current-user';
-
-// Initialize the app
-function init() {
-    // Initialize users storage if empty
-    if (!localStorage.getItem(USERS_KEY)) {
-        localStorage.setItem(USERS_KEY, JSON.stringify({}));
-    }
-    
-    checkAuth();
-    setupEventListeners();
-    initializePosts();
-    loadTrendingTopics();
-    loadSuggestedProfiles();
-    setupTheme();
-}
-
-// Get all registered users
-function getRegisteredUsers() {
-    const users = localStorage.getItem(USERS_KEY);
-    return users ? JSON.parse(users) : {};
-}
-
-// Save a user
-function saveUser(username, userData) {
-    const users = getRegisteredUsers();
-    users[username] = userData;
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-// Check if username exists in posts database OR registered users
-function isUsernameTaken(username) {
-    const users = getRegisteredUsers();
-    
-    // Check in registered users
-    if (users[username]) {
-        return true;
-    }
-    
-    // Check in posts database (as per your requirement)
-    return DATABASEPOSTS.some(post => post.username === username);
-}
-// main.js - Update checkAuth() function around line 641
-// main.js - Update checkAuth function
-function checkAuth() {
-    const savedUser = localStorage.getItem(CURRENT_USER_KEY);
-    
-    if (savedUser) {
-        try {
-            const parsedUser = JSON.parse(savedUser);
-            
-            // Convert arrays back to Sets
-            currentUser = {
-                ...parsedUser,
-                likedPosts: new Set(parsedUser.likedPosts || []),
-                followedTopics: new Set(parsedUser.followedTopics || []),
-                isGuest: false
-            };
-            
-            console.log('User automatically logged in:', currentUser.username);
-            
-            // Initialize posts
-            initializePosts();
-            
-            // Hide auth modal, show app
-            hideAuthModal();
-            
-            updateUserUI();
-            loadPosts();
-            loadSearchHistory();
-            
-            return true;
-        } catch (e) {
-            console.error('Error parsing user data:', e);
-            localStorage.removeItem(CURRENT_USER_KEY);
-        }
-    }
-    
-    // No user or error - show auth modal
-    showAuthModal();
-    
-    // Set default guest user
-    currentUser = {
-        name: "Guest",
-        username: "guest",
-        email: "",
-        likedPosts: new Set(),
-        searchHistory: [],
-        followedTopics: new Set(),
-        isGuest: true
-    };
-    
-    // Initialize posts for guest too
-    initializePosts();
-    
-    return false;
-}
+// ==================== AUTH FUNCTIONS ====================
 
 function showAuthModal() {
     if (elements.authModal) {
@@ -197,11 +104,33 @@ function hideAuthModal() {
     }
 }
 
-// Save current user to localStorage
-// main.js - Update saveCurrentUser function
+function getRegisteredUsers() {
+    const users = localStorage.getItem(USERS_KEY);
+    return users ? JSON.parse(users) : {};
+}
+
+function saveUser(username, userData) {
+    const users = getRegisteredUsers();
+    users[username] = userData;
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function isUsernameTaken(username) {
+    const users = getRegisteredUsers();
+    
+    if (users[username]) {
+        return true;
+    }
+    
+    if (DATABASEPOSTS && DATABASEPOSTS.length > 0) {
+        return DATABASEPOSTS.some(post => post.username === username);
+    }
+    
+    return false;
+}
+
 function saveCurrentUser() {
     if (currentUser && !currentUser.isGuest) {
-        // Convert Sets to Arrays for localStorage
         const userToSave = {
             ...currentUser,
             likedPosts: currentUser.likedPosts ? Array.from(currentUser.likedPosts) : [],
@@ -210,7 +139,6 @@ function saveCurrentUser() {
         
         localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userToSave));
         
-        // Also update the user in registered users storage
         const users = getRegisteredUsers();
         if (users[currentUser.username]) {
             users[currentUser.username] = {
@@ -223,228 +151,110 @@ function saveCurrentUser() {
         }
     }
 }
-// Setup event listeners
-function setupEventListeners() {
-    // Auth event listeners
-    if (elements.authTabs) {
-        elements.authTabs.forEach(tab => {
-            tab.addEventListener('click', switchAuthTab);
-        });
-    }
-    
-    if (elements.loginForm) {
-        elements.loginForm.addEventListener('submit', handleLogin);
-    }
-    
-    if (elements.signupForm) {
-        elements.signupForm.addEventListener('submit',handleSignup);
-    }
-    
-    if (elements.createNewAccount) {
-        elements.createNewAccount.addEventListener('click', () => {
-            document.querySelector('.auth-tab[data-tab="signup"]').click();
-        });
-    }
-    
-    // Theme toggle
-    if (elements.themeToggleBtn) {
-        elements.themeToggleBtn.addEventListener('click', toggleTheme);
-    }
-    
-    // Search functionality
-    if (elements.searchInput) {
-        elements.searchInput.addEventListener('input', handleSearch);
-        elements.searchInput.addEventListener('focus', showSearchResults);
-    }
-    
-    if (elements.searchToggle) {
-        elements.searchToggle.addEventListener('click', toggleSearchBar);
-    }
-    
-    if (elements.bottomSearchBtn) {
-        elements.bottomSearchBtn.addEventListener('click', toggleSearchBar);
-    }
-    
-    // Post creation
-    if (elements.createPostBtn) {
-        elements.createPostBtn.addEventListener('click', () => showPostModal());
-    }
-    
-    if (elements.submitPostBtn) {
-        elements.submitPostBtn.addEventListener('click', createPost);
-    }
-    
-    if (elements.submitNewPostBtn) {
-        elements.submitNewPostBtn.addEventListener('click', createNewPost);
-    }
-    
-    if (elements.createPostMobile) {
-        elements.createPostMobile.addEventListener('click', () => showPostModal());
-    }
-    
-    if (elements.bottomCreatePostBtn) {
-        elements.bottomCreatePostBtn.addEventListener('click', () => showPostModal());
-    }
-    
-    // Modal controls
-    if (elements.closeProfileModal) {
-        elements.closeProfileModal.addEventListener('click', () => {
-            elements.profileModal.classList.remove('active');
-        });
-    }
-    
-    if (elements.closePostModal) {
-        elements.closePostModal.addEventListener('click', () => {
-            elements.postModal.classList.remove('active');
-            resetPostForm();
-        });
-    }
-    
-    // Load more posts
-    if (elements.loadMoreBtn) {
-        elements.loadMoreBtn.addEventListener('click', loadMorePosts);
-    }
-    
-    // Media buttons
-    document.querySelectorAll('.media-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const type = btn.dataset.type;
-            handleMediaButtonClick(type);
-        });
-    });
-    // In setupEventListeners() function, update these parts:
 
-// Profile links - OWN PROFILE
-if (elements.profileLink) {
-    elements.profileLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        showOwnProfile(); // Changed from showUserProfile()
-    });
-}
-
-if (elements.mobileProfileLink) {
-    elements.mobileProfileLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        showOwnProfile(); // Changed from showUserProfile()
-        closeMobileMenu();
-    });
-}
-
-if (elements.bottomProfileBtn) {
-    elements.bottomProfileBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        showOwnProfile(); // Changed from showUserProfile()
-    });
-}
-
-// Also update desktop sidebar profile link
-const desktopProfileLink = document.getElementById('desktopProfileLink');
-if (desktopProfileLink) {
-    desktopProfileLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        showOwnProfile();
-    });
-}
-    // Media buttons in modal
-    if (elements.addImageBtn) {
-        elements.addImageBtn.addEventListener('click', () => addMediaToPost('image'));
-    }
+function checkAuth() {
+    const savedUser = localStorage.getItem(CURRENT_USER_KEY);
     
-    if (elements.addVideoBtn) {
-        elements.addVideoBtn.addEventListener('click', () => addMediaToPost('video'));
-    }
-    
-    if (elements.addLinkBtn) {
-        elements.addLinkBtn.addEventListener('click', () => addMediaToPost('iframe'));
-    }
-    
-    // Mobile menu
-    if (elements.mobileMenuToggle) {
-        elements.mobileMenuToggle.addEventListener('click', openMobileMenu);
-    }
-    
-    if (elements.closeMobileMenu) {
-        elements.closeMobileMenu.addEventListener('click', closeMobileMenu);
-    }
-    
-    // User menu
-    if (elements.menuToggle) {
-        elements.menuToggle.addEventListener('click', toggleUserMenu);
-    }
-    
-    if (elements.logoutLink) {
-        elements.logoutLink.addEventListener('click', handleLogout);
-    }
-    
-    if (elements.mobileLogoutLink) {
-        elements.mobileLogoutLink.addEventListener('click', handleLogout);
-    }
-    
-    // Close modals when clicking outside
-    window.addEventListener('click', (e) => {
-        if (elements.profileModal && e.target === elements.profileModal) {
-            elements.profileModal.classList.remove('active');
-        }
-        if (elements.postModal && e.target === elements.postModal) {
-            elements.postModal.classList.remove('active');
-            resetPostForm();
-        }
-        
-        // Close user menu if clicking outside
-        if (elements.userMenu && !elements.userMenu.contains(e.target) && e.target !== elements.menuToggle) {
-            elements.userMenu.classList.remove('active');
-        }
-        
-        // Close search results if clicking outside
-        if (elements.searchResults && !elements.searchResults.contains(e.target) && e.target !== elements.searchInput) {
-            elements.searchResults.style.display = 'none';
-        }
-    });
-    
-    // Close search on escape
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            if (elements.searchResults) {
-                elements.searchResults.style.display = 'none';
+    if (savedUser) {
+        try {
+            const parsedUser = JSON.parse(savedUser);
+            
+            currentUser = {
+                ...parsedUser,
+                likedPosts: new Set(parsedUser.likedPosts || []),
+                followedTopics: new Set(parsedUser.followedTopics || []),
+                isGuest: false
+            };
+            
+            console.log('User automatically logged in:', currentUser.username);
+            
+            // Only initialize posts if we have data
+            if (DATABASEPOSTS && DATABASEPOSTS.length > 0) {
+                initializePosts();
+                loadPosts();
+                loadTrendingTopics();
+                loadSuggestedProfiles();
             }
-            document.querySelector('.search-bar')?.classList.remove('active');
+            
+            hideAuthModal();
+            updateUserUI();
+            loadSearchHistory();
+            
+            return true;
+        } catch (e) {
+            console.error('Error parsing user data:', e);
+            localStorage.removeItem(CURRENT_USER_KEY);
         }
-    });
+    }
+    
+    showAuthModal();
+    
+    currentUser = {
+        name: "Guest",
+        username: "guest",
+        email: "",
+        likedPosts: new Set(),
+        searchHistory: [],
+        followedTopics: new Set(),
+        isGuest: true
+    };
+    
+    updateUserUI();
+    return false;
 }
 
-// Auth functions
+function updateUserUI() {
+    if (!currentUser) return;
+    
+    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=1e3a8a&color=fff&bold=true`;
+    
+    if (elements.currentUserAvatar) {
+        elements.currentUserAvatar.src = avatarUrl;
+    }
+    
+    if (elements.userAvatar) {
+        elements.userAvatar.src = avatarUrl;
+    }
+    
+    if (elements.mobileUserName) {
+        elements.mobileUserName.textContent = currentUser.name;
+    }
+    
+    if (elements.mobileUserUsername) {
+        elements.mobileUserUsername.textContent = `@${currentUser.username}`;
+    }
+    
+    const mobileAvatar = elements.mobileMenu?.querySelector('.user-avatar img');
+    if (mobileAvatar) mobileAvatar.src = avatarUrl;
+}
+
 function switchAuthTab(e) {
     const tab = e.target;
     const tabName = tab.dataset.tab;
     
-    // Update active tab
     elements.authTabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     
-    // Show corresponding form
     document.querySelectorAll('.auth-form').forEach(form => {
         form.classList.remove('active');
     });
     document.getElementById(`${tabName}Form`).classList.add('active');
     
-    // Clear errors
     if (elements.usernameError) elements.usernameError.style.display = 'none';
     if (elements.loginError) elements.loginError.style.display = 'none';
 }
-// main.js - Update the handleLogin function
+
 function handleLogin(e) {
     e.preventDefault();
     
     const username = elements.loginUsername.value.trim().toLowerCase();
     const password = elements.loginPassword.value.trim();
     
-    // Clear previous error
     if (elements.loginError) {
         elements.loginError.style.display = 'none';
         elements.loginError.textContent = '';
     }
     
-    // Validation
     if (!username || !password) {
         if (elements.loginError) {
             elements.loginError.textContent = 'Please fill in all fields';
@@ -453,10 +263,8 @@ function handleLogin(e) {
         return;
     }
     
-    // Get registered users
     const users = getRegisteredUsers();
     
-    // Check if user exists
     if (!users[username]) {
         if (elements.loginError) {
             elements.loginError.textContent = 'Account not found. Please sign up first.';
@@ -465,7 +273,6 @@ function handleLogin(e) {
         return;
     }
     
-    // Check password (in real app, this would be hashed)
     if (users[username].password !== password) {
         if (elements.loginError) {
             elements.loginError.textContent = 'Wrong password. Please try again.';
@@ -474,10 +281,7 @@ function handleLogin(e) {
         return;
     }
     
-    // Login successful - GET USER DATA FROM STORAGE
     const userData = users[username];
-    
-    // Convert arrays back to Sets
     const likedPosts = new Set(userData.likedPosts || []);
     const followedTopics = new Set(userData.followedTopics || []);
     
@@ -491,10 +295,8 @@ function handleLogin(e) {
         isGuest: false
     };
     
-    // Save to localStorage - USER STAYS LOGGED IN!
     saveCurrentUser();
     
-    // Update the registered user data with current data
     saveUser(username, {
         ...userData,
         likedPosts: Array.from(likedPosts),
@@ -502,21 +304,20 @@ function handleLogin(e) {
         followedTopics: Array.from(followedTopics)
     });
     
-    // Re-initialize posts for this user (new randomization)
-    initializePosts();
+    if (DATABASEPOSTS && DATABASEPOSTS.length > 0) {
+        initializePosts();
+        loadPosts();
+        loadTrendingTopics();
+        loadSuggestedProfiles();
+    }
     
-    // Hide auth modal, show app
     hideAuthModal();
-    
-    // Update UI
     updateUserUI();
-    loadPosts(); // Load posts after login
     loadSearchHistory();
     
-    // Clear form
     if (elements.loginForm) elements.loginForm.reset();
 }
-// main.js - Update handleSignup function
+
 function handleSignup(e) {
     e.preventDefault();
     
@@ -526,10 +327,8 @@ function handleSignup(e) {
     const password = elements.signupPassword.value.trim();
     const confirmPassword = elements.signupConfirmPassword.value.trim();
     
-    // Clear previous error
     if (elements.usernameError) elements.usernameError.style.display = 'none';
     
-    // Validation
     if (!name || !username || !email || !password || !confirmPassword) {
         alert('Please fill in all fields');
         return;
@@ -545,7 +344,6 @@ function handleSignup(e) {
         return;
     }
     
-    // Check if username already exists (in posts OR registered users)
     if (isUsernameTaken(username)) {
         if (elements.usernameError) {
             elements.usernameError.textContent = 'This username is already taken.';
@@ -554,21 +352,18 @@ function handleSignup(e) {
         return;
     }
     
-    // Create user data
     const userData = {
         name: name,
         email: email,
-        password: password, // In real app, this would be hashed
+        password: password,
         likedPosts: [],
         searchHistory: [],
         followedTopics: [],
         createdAt: new Date().toISOString()
     };
     
-    // Save user to registered users
     saveUser(username, userData);
     
-    // Set as current user
     currentUser = {
         name: name,
         username: username,
@@ -579,82 +374,45 @@ function handleSignup(e) {
         isGuest: false
     };
     
-    // Save to localStorage - USER STAYS LOGGED IN!
     saveCurrentUser();
     
-    // Initialize posts (randomized)
-    initializePosts();
+    if (DATABASEPOSTS && DATABASEPOSTS.length > 0) {
+        initializePosts();
+        loadPosts();
+        loadTrendingTopics();
+        loadSuggestedProfiles();
+    }
     
-    // Hide auth modal, show app
     hideAuthModal();
-    
-    // Update UI
     updateUserUI();
-    loadPosts(); // Load posts after signup
     
-    // Clear form
     if (elements.signupForm) elements.signupForm.reset();
     
-    // Switch to login tab (for next time)
     const loginTab = document.querySelector('.auth-tab[data-tab="login"]');
     if (loginTab) loginTab.click();
-}
-function updateUserUI() {
-    if (!currentUser) return;
-    
-    // Update avatar
-    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=1e3a8a&color=fff&bold=true`;
-    
-    if (elements.currentUserAvatar) {
-        elements.currentUserAvatar.src = avatarUrl;
-    }
-    
-    if (elements.userAvatar) {
-        elements.userAvatar.src = avatarUrl;
-    }
-    
-    // Update mobile menu
-    if (elements.mobileUserName) {
-        elements.mobileUserName.textContent = currentUser.name;
-    }
-    
-    if (elements.mobileUserUsername) {
-        elements.mobileUserUsername.textContent = `@${currentUser.username}`;
-    }
-    
-    // Update mobile menu avatar
-    const mobileAvatar = elements.mobileMenu?.querySelector('.user-avatar img');
-    if (mobileAvatar) mobileAvatar.src = avatarUrl;
 }
 
 function handleLogout(e) {
     if (e) e.preventDefault();
     
-    // Clear current user data
     localStorage.removeItem(CURRENT_USER_KEY);
-    currentUser = null;
     
-    // Show auth modal, hide app
     showAuthModal();
     
-    // Reset forms
     if (elements.loginForm) elements.loginForm.reset();
     if (elements.signupForm) elements.signupForm.reset();
     
-    // Clear errors
     if (elements.usernameError) elements.usernameError.style.display = 'none';
     if (elements.loginError) elements.loginError.style.display = 'none';
     
-    // Switch to login tab
     const loginTab = document.querySelector('.auth-tab[data-tab="login"]');
     if (loginTab) loginTab.click();
     
-    // Clear feed
     if (elements.postsFeed) elements.postsFeed.innerHTML = '';
     displayedPosts.clear();
     currentPage = 0;
+    allPosts = [];
     
-    // Set default guest user
     currentUser = {
         name: "Guest",
         username: "guest",
@@ -665,59 +423,94 @@ function handleLogout(e) {
         isGuest: true
     };
     
-    // Update UI for guest
     updateUserUI();
 }
 
-// main.js - Update initializePosts() function
+// ==================== POST FUNCTIONS ====================
 function initializePosts() {
-    // Create a copy of all posts and reverse them (newest first)
-    allPosts = [...DATABASEPOSTS].reverse();
+    if (!DATABASEPOSTS || DATABASEPOSTS.length === 0) {
+        console.log('No posts data available for initialization');
+        return;
+    }
     
-    // Generate unique seed for each load - randomizes every time!
-    const seed = Date.now() + Math.random();
+    console.log(`Initializing ${DATABASEPOSTS.length} posts`);
     
-    // Shuffle posts using Fisher-Yates algorithm with unique seed
-    allPosts = shuffleArray(allPosts, seed);
+    // Create a copy of the posts
+    allPosts = [...DATABASEPOSTS];
     
-    // Add IDs to posts (from bottom to top as specified)
+    // IMPORTANT: Assign consistent IDs based on position in original array
+    // Since DATABASEPOSTS is the original order from JSON (oldest to newest)
+    // We'll assign IDs where position 0 = oldest, position N = newest
+    
     allPosts.forEach((post, index) => {
-        post.id = allPosts.length - index; // ID from bottom to top
+        // Calculate the ID number: (total posts - index) = highest number for newest posts
+        // Example: 100 posts total, index 0 (oldest) = reco100, index 99 (newest) = reco1
+        const recoNumber = DATABASEPOSTS.length - index;
+        
+        // Generate consistent ID: meko-username-recoX
+        // Use the actual username from the post
+        post.id = `meko-${post.username.toLowerCase()}-reco${recoNumber}`;
+        
+        // Also store the recoNumber for reference
+        post.recoNumber = recoNumber;
     });
     
+    // Now reverse to show newest first (with higher reco numbers)
+    allPosts = allPosts.reverse();
+    
+    console.log(`Assigned IDs to ${allPosts.length} posts`);
+    console.log('Newest post sample:', {
+        id: allPosts[0]?.id,
+        username: allPosts[0]?.username,
+        recoNumber: allPosts[0]?.recoNumber
+    });
+    console.log('Oldest post sample:', {
+        id: allPosts[allPosts.length - 1]?.id,
+        username: allPosts[allPosts.length - 1]?.username,
+        recoNumber: allPosts[allPosts.length - 1]?.recoNumber
+    });
+    
+    // Optional: Shuffle posts for variety (but keep IDs consistent!)
+    const seed = Date.now() + Math.random();
+    allPosts = shuffleArray(allPosts, seed);
+    
     console.log(`Loaded ${allPosts.length} posts with seed: ${seed}`);
+    console.log('Sample shuffled post with ID:', allPosts[0]?.id, allPosts[0]?.username);
 }
 
-// main.js - Update lines 130-140
-// Seeded random number generator
 function seededRandom(seed) {
     let x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
 }
 
-// Fisher-Yates shuffle with seed
 function shuffleArray(array, seed) {
     const shuffled = [...array];
-    const randomFunc = seededRandom(seed); // Renamed to avoid conflict
+    const randomFunc = seededRandom(seed);
     
     for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(randomFunc * (i + 1)); // Use randomFunc
+        const j = Math.floor(randomFunc * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     
     return shuffled;
 }
-// Post loading and rendering
+
 function loadPosts() {
     if (!elements.postsFeed) return;
+    
+    if (allPosts.length === 0) {
+        console.log('No posts available to load');
+        return;
+    }
     
     const startIndex = currentPage * postsPerPage;
     const endIndex = startIndex + postsPerPage;
     
-    // Get posts that haven't been displayed yet
     const postsToShow = allPosts
         .filter(post => !displayedPosts.has(post.id))
         .slice(startIndex, endIndex);
+    
+    console.log(`Loading ${postsToShow.length} posts, page ${currentPage + 1}`);
     
     if (postsToShow.length === 0) {
         if (elements.loadMoreBtn) {
@@ -734,55 +527,54 @@ function loadPosts() {
     });
     
     currentPage++;
+    
+    if (elements.loadMoreBtn) {
+        const remainingPosts = allPosts.length - displayedPosts.size;
+        elements.loadMoreBtn.disabled = remainingPosts === 0;
+        elements.loadMoreBtn.textContent = remainingPosts === 0 ? 'No more posts' : `Reach me to Load More`;
+    }
 }
 
 function loadMorePosts() {
     loadPosts();
 }
+
 function createPostElement(post, postId) {
     const postElement = document.createElement('div');
     postElement.className = 'post-card';
     postElement.dataset.postId = postId;
     postElement.dataset.topic = post.topic || '';
     
-    // Parse and format date from "Dec 11 2025 3:02AM" format
     const postDate = parseCustomDate(post.datePost);
     const formattedDate = formatDateToCustom(postDate);
     
-    // Create user profile from posts data
     const userPosts = DATABASEPOSTS.filter(p => p.username === post.username);
     const totalLikes = userPosts.reduce((sum, p) => sum + p.likes, 0);
     const postsCount = userPosts.length;
     
-    // Get user's first post date as joined date
     const firstPost = userPosts[userPosts.length - 1];
     const joinedDate = firstPost ? formatJoinedDate(parseCustomDate(firstPost.datePost)) : 'Recently';
     
-    // Check for mentions in post content
     let mentionedUsers = [];
     let processedContent = post.content || '';
     
     if (post.content) {
-        // Find all @mentions in the content
         const mentionRegex = /@(\w+)/g;
         let match;
         mentionedUsers = [];
         
         while ((match = mentionRegex.exec(post.content)) !== null) {
-            mentionedUsers.push(match[1]); // Get username without @
+            mentionedUsers.push(match[1]);
         }
         
-        // Highlight mentions in the content
         processedContent = post.content.replace(/@(\w+)/g, 
             '<span class="mention" data-username="$1">@$1</span>'
         );
     }
     
-    // Check if this post mentions the logged-in user
     const mentionsCurrentUser = currentUser && !currentUser.isGuest && 
                                 mentionedUsers.includes(currentUser.username);
     
-    // 1. SET INNER HTML (YOUR TEMPLATE)
     postElement.innerHTML = `
         <div class="post-header">
             <div class="post-user" data-username="${post.username}">
@@ -810,22 +602,13 @@ function createPostElement(post, postId) {
         </div>
     `;
     
-    // 2. FIND THE VIDEO AND ATTACH OBSERVER
-    // This targets the video element using the class defined in renderMediaContent
+    // OBSERVE VIDEO FOR AUTO-PLAY/PAUSE
+    // Use the already declared 'postVideoObserver' from HTML
     const videoElement = postElement.querySelector('.auto-pause-video');
-    
-    if (videoElement) {
-        // Assume 'postVideoObserver' is the global IntersectionObserver instance from the previous step.
-        // Start observing this specific video element immediately.
-        // The callback logic handles the play/pause when it scrolls in/out of view.
-        if (typeof postVideoObserver !== 'undefined') {
-            postVideoObserver.observe(videoElement);
-        } else {
-            console.error("postVideoObserver is not defined! Ensure the global observer setup code runs first.");
-        }
+    if (videoElement && typeof postVideoObserver !== 'undefined') {
+        postVideoObserver.observe(videoElement);
     }
     
-    // 3. Add other event listeners
     const likeBtn = postElement.querySelector('[data-action="like"]');
     if (likeBtn) {
         likeBtn.addEventListener('click', () => handleLike(postId, likeBtn));
@@ -836,13 +619,10 @@ function createPostElement(post, postId) {
         userInfo.addEventListener('click', () => showUserProfile(post.username, post.name));
     }
     
-    // Add click handlers for mentions
     postElement.querySelectorAll('.mention').forEach(mention => {
         mention.addEventListener('click', (e) => {
             e.stopPropagation();
             const username = mention.dataset.username;
-            
-            // Check if mentioned user exists in database
             const userExists = DATABASEPOSTS.some(p => p.username === username);
             if (userExists) {
                 showUserProfile(username, username);
@@ -855,16 +635,108 @@ function createPostElement(post, postId) {
     return postElement;
 }
 
+// Helper function to convert YouTube URLs to embed format
+function convertToEmbedUrl(url) {
+    if (!url) return null;
+    
+    try {
+        // Clean up URL - remove any extra parameters that might interfere
+        let cleanUrl = url.split('&')[0]; // Take only the first parameter segment
+        
+        // YouTube Shorts format: https://youtube.com/shorts/VIDEO_ID
+        // Also handles: m.youtube.com/shorts/, www.youtube.com/shorts/
+        if (cleanUrl.includes('/shorts/')) {
+            const videoId = cleanUrl.split('/shorts/')[1].split('?')[0];
+            return `https://www.youtube.com/embed/${videoId}`;
+        }
+        
+        // Extract video ID from various YouTube URL formats
+        let videoId = '';
+        
+        // Mobile format: https://m.youtube.com/watch?si=...&v=VIDEO_ID&feature=...
+        if (cleanUrl.includes('m.youtube.com/watch') || cleanUrl.includes('youtube.com/watch')) {
+            // Use URL API to parse query parameters
+            try {
+                const urlObj = new URL(url);
+                videoId = urlObj.searchParams.get('v');
+            } catch {
+                // Fallback regex for mobile URLs
+                const match = url.match(/[?&]v=([^&]+)/);
+                videoId = match ? match[1] : '';
+            }
+        }
+        // youtu.be format: https://youtu.be/VIDEO_ID
+        else if (cleanUrl.includes('youtu.be/')) {
+            videoId = cleanUrl.split('youtu.be/')[1].split('?')[0];
+        }
+        // Feature format: https://www.youtube.com/watch?feature=youtu.be&v=VIDEO_ID
+        else if (cleanUrl.includes('youtube.com') && cleanUrl.includes('v=')) {
+            const match = cleanUrl.match(/v=([^&]+)/);
+            videoId = match ? match[1] : '';
+        }
+        
+        // Clean up video ID (remove any trailing junk)
+        if (videoId) {
+            videoId = videoId.split('&')[0].split('#')[0].split('?')[0];
+            
+            // Validate video ID format (should be 11 characters for standard YouTube)
+            if (videoId.length >= 11) {
+                // Take only the first 11 characters (standard YouTube ID length)
+                videoId = videoId.substring(0, 11);
+            }
+            
+            if (videoId) {
+                return `https://www.youtube.com/embed/${videoId}`;
+            }
+        }
+        
+        // If it's already an embed URL, return as-is
+        if (cleanUrl.includes('youtube.com/embed/')) {
+            return cleanUrl;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error converting YouTube URL:', error, 'URL:', url);
+        return null;
+    }
+}
 
+// Enhanced isYouTubeUrl function
+function isYouTubeUrl(url) {
+    if (!url) return false;
+    
+    const youtubePatterns = [
+        'youtube.com',
+        'youtu.be',
+        'youtube.com/shorts',
+        'm.youtube.com'
+    ];
+    
+    return youtubePatterns.some(pattern => url.includes(pattern));
+} 
 
-// Add this function to track and display mentions for a user
+function renderMediaContent(post) {
+    if (post.iframe) {
+        return `<div class="post-media"><iframe class="post-iframe" src="${post.iframe}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+    } else if (post.video) {
+        return `<div class="post-media">
+            <video class="auto-pause-video" src="${post.video}" loop controls controlsList="nodownload noplaybackrate" oncontextmenu="return false;" disablePictureInPicture style="-webkit-touch-callout:none; -webkit-user-select:none; user-select:none;">
+                Your browser does not support the video tag.
+            </video>
+        </div>`;
+    } else if (post.image) {
+        return `<div class="post-media"><img src="${post.image}" alt="Post image" loading="lazy" oncontextmenu="return false;"></div>`;
+    }
+    return '';
+}
+
 function getMentionsForUser(username) {
     const userMentions = [];
     
-    // Go through all posts (from bottom to top)
     for (let i = 0; i < DATABASEPOSTS.length; i++) {
         const post = DATABASEPOSTS[i];
-        const postId = DATABASEPOSTS.length - i; // ID from bottom to top
+        const postId = DATABASEPOSTS.length - i;
         
         if (post.content && post.content.includes(`@${username}`)) {
             userMentions.push({
@@ -873,44 +745,252 @@ function getMentionsForUser(username) {
                 datePost: parseCustomDate(post.datePost),
                 mentionedBy: post.username,
                 topic: post.topic || '',
-                positionInArray: i // Lower number = older post
+                positionInArray: i
             });
         }
     }
     
-    // Sort mentions by date (newest first)
     userMentions.sort((a, b) => b.datePost - a.datePost);
-    
     return userMentions;
 }
+// ==================== DATE FUNCTIONS ====================
 
-function renderMediaContent(post) {
-    if (post.iframe) {
-        // Iframes are typically handled differently, but we can add the auto-pause logic to the video inside the iframe (if you control it)
-        // or apply the class to the iframe itself if it can be paused via external API (which is rare).
-        // For now, only the video tag is modified.
-        return `<div class="post-media"><iframe class="post-iframe" src="${post.iframe}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
-    } else if (post.video) {
-        return `<div class="post-media">
-    <video 
-        class="auto-pause-video"  
-        src="${post.video}" 
-         loop   controls             
-        controlsList="nodownload noplaybackrate"
-        oncontextmenu="return false;"
-        disablePictureInPicture
-        style="-webkit-touch-callout:none; -webkit-user-select:none;
-        user-select:none;" > 
-        Your browser does not support the video tag.
-    </video>
-</div>`;
-    } else if (post.image) {
-        return `<div class="post-media"><img src="${post.image}" alt="Post image" loading="lazy"oncontextmenu="return false;"></div>`;
+function parseCustomDate(dateString) {
+    try {
+        console.log('Parsing date:', dateString);
+        
+        const months = {
+            'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+            'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+        };
+        
+        // Handle different date formats
+        if (!dateString || typeof dateString !== 'string') {
+            console.warn('Invalid date input:', dateString);
+            return new Date();
+        }
+        
+        // Parse format: "Dec 13 2025 2:28PM"
+        const parts = dateString.split(' ');
+        
+        if (parts.length < 4) {
+            console.warn('Invalid date format, expecting 4 parts:', dateString);
+            return new Date();
+        }
+        
+        const monthAbbr = parts[0];
+        const day = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        const timePart = parts[3]; // "2:28PM"
+        
+        const month = months[monthAbbr];
+        if (month === undefined) {
+            console.warn('Invalid month:', monthAbbr);
+            return new Date();
+        }
+        
+        // Parse time with AM/PM directly attached
+        const timeMatch = timePart.match(/(\d+):(\d+)(AM|PM)/i);
+        if (!timeMatch) {
+            console.warn('Invalid time format, trying alternative:', timePart);
+            // Try alternative format with space
+            const altParts = dateString.split(' ');
+            if (altParts.length >= 5) {
+                // Format: "Dec 13 2025 2:28 PM"
+                const altTimePart = altParts[3] + altParts[4]; // Combine "2:28" + "PM"
+                const altTimeMatch = altTimePart.match(/(\d+):(\d+)(AM|PM)/i);
+                if (altTimeMatch) {
+                    let hours = parseInt(altTimeMatch[1]);
+                    const minutes = parseInt(altTimeMatch[2]);
+                    const ampm = altTimeMatch[3].toUpperCase();
+                    
+                    if (ampm === 'PM' && hours < 12) hours += 12;
+                    if (ampm === 'AM' && hours === 12) hours = 0;
+                    
+                    return new Date(year, month, day, hours, minutes);
+                }
+            }
+            return new Date(year, month, day);
+        }
+        
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const ampm = timeMatch[3].toUpperCase();
+        
+        // Convert 12-hour to 24-hour format
+        if (ampm === 'PM' && hours < 12) {
+            hours += 12;
+        }
+        if (ampm === 'AM' && hours === 12) {
+            hours = 0;
+        }
+        
+        return new Date(year, month, day, hours, minutes);
+    } catch (error) {
+        console.error('Error parsing date:', dateString, error);
+        return new Date();
     }
-    return '';
 }
 
-// Search functionality
+function formatDateToCustom(date) {
+    try {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[date.getMonth()];
+        const day = date.getDate();
+        const year = date.getFullYear();
+        
+        let hours = date.getHours();
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        
+        hours = hours % 12;
+        hours = hours ? hours : 12; // Convert 0 to 12
+        
+        return `${month} ${day} ${year} ${hours}:${minutes}${ampm}`;
+    } catch (error) {
+        console.error('Error formatting date:', date, error);
+        return 'Invalid Date';
+    }
+}
+
+function formatJoinedDate(date) {
+    try {
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+        
+        return `${month} ${year}`;
+    } catch (error) {
+        console.error('Error formatting joined date:', date, error);
+        return 'Recently';
+    }
+}
+
+function handleLike(postId, button) {
+    if (!currentUser || currentUser.isGuest) {
+        alert('Please login to like posts!');
+        return;
+    }
+    
+    const post = allPosts.find(p => p.id === postId);
+    if (!post) return;
+    
+    if (!currentUser.likedPosts) currentUser.likedPosts = new Set();
+    
+    const postElement = button.closest('.post-card');
+    const likesSpan = postElement.querySelector('.post-stats span:first-child');
+    
+    let currentLikes = post.likes;
+    if (likesSpan) {
+        const likesText = likesSpan.textContent;
+        currentLikes = parseInt(likesText.replace(/[^0-9]/g, ''));
+    }
+    
+    if (currentUser.likedPosts.has(postId)) {
+        currentUser.likedPosts.delete(postId);
+        currentLikes--;
+        button.classList.remove('liked');
+        button.innerHTML = '<i class="fas fa-heart"></i> Like';
+        playUnlikeSound();
+    } else {
+        currentUser.likedPosts.add(postId);
+        currentLikes++;
+        button.classList.add('liked');
+        button.innerHTML = '<i class="fas fa-heart"></i> Liked';
+        playLikeSound();
+        button.style.transform = 'scale(1.2)';
+        setTimeout(() => {
+            button.style.transform = 'scale(1)';
+        }, 200);
+    }
+    
+    post.likes = currentLikes;
+    
+    if (likesSpan) {
+        likesSpan.textContent = `${currentLikes.toLocaleString()} likes`;
+        likesSpan.style.color = 'var(--accent)';
+        setTimeout(() => {
+            likesSpan.style.color = '';
+        }, 300);
+    }
+    
+    saveCurrentUser();
+}
+
+function playLikeSound() {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 523.25;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (error) {
+        console.log('Audio context not supported, using fallback sound');
+        playFallbackSound('like');
+    }
+}
+
+function playUnlikeSound() {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 392.00;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+    } catch (error) {
+        console.log('Audio context not supported, using fallback sound');
+        playFallbackSound('unlike');
+    }
+}
+
+function playFallbackSound(type) {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        
+        oscillator.connect(audioContext.destination);
+        oscillator.frequency.value = type === 'like' ? 600 : 400;
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (error) {
+        console.log('Playing simulated sound');
+    }
+}
+
+function scrollToPost(postId) {
+    const postElement = document.querySelector(`[data-post-id="${postId}"]`);
+    if (postElement) {
+        postElement.style.boxShadow = '0 0 0 3px var(--accent)';
+        postElement.style.transition = 'box-shadow 0.3s';
+        setTimeout(() => {
+            postElement.style.boxShadow = '';
+        }, 2000);
+        postElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+// ==================== SEARCH FUNCTIONS ====================
+
 function toggleSearchBar() {
     const searchBar = document.querySelector('.search-bar');
     if (searchBar) {
@@ -1010,7 +1090,6 @@ function displayEnhancedSearchResults(results, query) {
     
     let hasResults = false;
     
-    // Show profiles section
     if (profiles.length > 0) {
         hasResults = true;
         const profileSection = createSearchSection('Profiles', 'user');
@@ -1020,7 +1099,6 @@ function displayEnhancedSearchResults(results, query) {
         elements.searchResults.appendChild(profileSection);
     }
     
-    // Show topics section
     if (topics.length > 0) {
         hasResults = true;
         const topicSection = createSearchSection('Topics', 'hashtag');
@@ -1030,7 +1108,6 @@ function displayEnhancedSearchResults(results, query) {
         elements.searchResults.appendChild(topicSection);
     }
     
-    // Show posts section
     if (posts.length > 0) {
         hasResults = true;
         const postSection = createSearchSection('Posts', 'file-alt');
@@ -1040,7 +1117,6 @@ function displayEnhancedSearchResults(results, query) {
         elements.searchResults.appendChild(postSection);
     }
     
-    // Show no results message
     if (!hasResults) {
         const noResults = document.createElement('div');
         noResults.className = 'search-result-item';
@@ -1118,105 +1194,12 @@ function createTopicResultItem(topic) {
     
     return item;
 }
-function parseCustomDate(dateString) {
-    try {
-        // Parse "Dec 11 2025 3:02AM" format
-        const months = {
-            'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-            'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-        };
-        
-        // Split by space: ["Dec", "11", "2025", "3:02AM"]
-        const parts = dateString.split(' ');
-        
-        if (parts.length < 4) {
-            console.warn('Invalid date format:', dateString);
-            return new Date(); // Return current date as fallback
-        }
-        
-        const monthAbbr = parts[0];
-        const day = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
-        const timePart = parts[3];
-        
-        // Get month index
-        const month = months[monthAbbr];
-        if (month === undefined) {
-            console.warn('Invalid month:', monthAbbr);
-            return new Date();
-        }
-        
-        // Parse time with AM/PM
-        const timeMatch = timePart.match(/(\d+):(\d+)(AM|PM)/i);
-        if (!timeMatch) {
-            console.warn('Invalid time format:', timePart);
-            return new Date(year, month, day);
-        }
-        
-        let hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2]);
-        const ampm = timeMatch[3].toUpperCase();
-        
-        // Convert to 24-hour format
-        if (ampm === 'PM' && hours < 12) {
-            hours += 12;
-        }
-        if (ampm === 'AM' && hours === 12) {
-            hours = 0;
-        }
-        
-        return new Date(year, month, day, hours, minutes);
-    } catch (error) {
-        console.error('Error parsing date:', dateString, error);
-        return new Date(); // Return current date as fallback
-    }
-}
 
-function formatDateToCustom(date) {
-    try {
-        // Format: "Dec 11 2025 3:02AM"
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const month = months[date.getMonth()];
-        const day = date.getDate();
-        const year = date.getFullYear();
-        
-        // Format time to 12-hour format with AM/PM
-        let hours = date.getHours();
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        
-        // Convert to 12-hour format
-        hours = hours % 12;
-        hours = hours ? hours : 12; // Convert 0 to 12
-        
-        return `${month} ${day} ${year} ${hours}:${minutes}${ampm}`;
-    } catch (error) {
-        console.error('Error formatting date:', date, error);
-        return 'Invalid Date';
-    }
-}
-
-function formatJoinedDate(date) {
-    try {
-        // Format: "December 2025"
-        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        const month = months[date.getMonth()];
-        const year = date.getFullYear();
-        
-        return `${month} ${year}`;
-    } catch (error) {
-        console.error('Error formatting joined date:', date, error);
-        return 'Recently';
-    }
-}
-
-
-// Also update the search result date formatting:
 function createPostResultItem(post) {
     const item = document.createElement('div');
     item.className = 'search-result-item';
-    const postDate = parseCustomDate(post.datePost); // Use parser
-    const formattedDate = formatDateToCustom(postDate); // Use the new format
+    const postDate = parseCustomDate(post.datePost);
+    const formattedDate = formatDateToCustom(postDate);
     
     item.innerHTML = `
         <div class="post-icon">
@@ -1249,7 +1232,6 @@ function showSearchResults() {
     }
 }
 
-// Search history
 function addToSearchHistory(identifier, name, type) {
     if (!currentUser) return;
     
@@ -1262,15 +1244,11 @@ function addToSearchHistory(identifier, name, type) {
         timestamp: new Date() 
     };
     
-    // Remove if already exists
     currentUser.searchHistory = currentUser.searchHistory.filter(item => 
         !(item.identifier === identifier && item.type === type)
     );
     
-    // Add to beginning
     currentUser.searchHistory.unshift(searchItem);
-    
-    // Keep only last 5 items
     currentUser.searchHistory = currentUser.searchHistory.slice(0, 5);
     
     saveCurrentUser();
@@ -1315,94 +1293,41 @@ function loadSearchHistory() {
     });
 }
 
-function showUserProfile(username, name) {
-    // Get user's posts
-    const userPosts = DATABASEPOSTS.filter(post => post.username === username);
+function filterPostsByTopic(topic) {
+    if (!elements.postsFeed) return;
     
-    if (userPosts.length === 0) return;
+    elements.postsFeed.innerHTML = '';
+    currentPage = 0;
+    displayedPosts.clear();
     
-    // Calculate stats
-    const totalLikes = userPosts.reduce((sum, post) => sum + post.likes, 0);
-    const postsCount = userPosts.length;
+    const filteredPosts = allPosts.filter(post => post.topic === topic);
+    const shuffledPosts = shuffleArray([...filteredPosts], new Date().getTime());
     
-    // Get followers count (simulated)
-    const followers = Math.floor(totalLikes / 10) + 100;
+    shuffledPosts.slice(0, postsPerPage).forEach(post => {
+        const postElement = createPostElement(post, post.id);
+        elements.postsFeed.appendChild(postElement);
+        displayedPosts.add(post.id);
+    });
     
-    // Get following count (simulated)
-    const following = Math.floor(postsCount * 2) + 50;
-    
-    // Get first post date
-    const firstPost = userPosts[userPosts.length - 1];
-    const joinedDate = firstPost ? formatJoinedDate(parseCustomDate(firstPost.datePost)) : 'Recently'; // Use parser
-    
-    // Update profile header
-    const profileHeader = document.getElementById('profileHeader');
-    if (profileHeader) {
-        profileHeader.innerHTML = `
-            <div class="profile-header">
-                <div class="profile-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e3a8a&color=fff" alt="${name}">
-                </div>
-                <h2 id="profileName">${name}</h2>
-                <div class="profile-username">@${username}</div>
-                <div class="profile-stats">
-                    <div class="stat-item">
-                        <span class="stat-value">${postsCount}</span>
-                        <span class="stat-label">Posts</span>
-                    </div>
-
-                    <div class="stat-item">
-                        <span class="stat-value">${totalLikes.toLocaleString()}</span>
-                        <span class="stat-label">Total Likes</span>
-                    </div>
-                </div>
-                <div class="joined-date">Joined ${joinedDate}</div>
-            </div>
-        `;
-    }
-    
-    // Update profile name in modal header
-    const profileNameElement = document.getElementById('profileName');
-    if (profileNameElement) profileNameElement.textContent = name;
-    
-    // Load user's posts
-    const profilePosts = document.getElementById('profilePosts');
-    if (profilePosts) {
-        profilePosts.innerHTML = '';
-        
-        // Show user's posts (newest first)
-        const userPostsReversed = [...userPosts].reverse();
-        userPostsReversed.forEach((post) => {
-            // Find the post in allPosts to get correct ID
-            const foundPost = allPosts.find(p => 
-                p.username === post.username && 
-                p.datePost === post.datePost
-            );
-            
-            if (foundPost) {
-                const postElement = createPostElement(foundPost, foundPost.id);
-                profilePosts.appendChild(postElement);
-            }
-        });
-    }
-    
-    // Show modal
-    if (elements.profileModal) {
-        elements.profileModal.classList.add('active');
+    if (elements.loadMoreBtn) {
+        elements.loadMoreBtn.style.display = 'none';
     }
 }
-// Trending topics
+
 function loadTrendingTopics() {
+    if (!DATABASEPOSTS || DATABASEPOSTS.length === 0) {
+        console.log('No posts data available for trending topics');
+        return;
+    }
+    
     const topics = {};
     
-    // Count posts by topic
     DATABASEPOSTS.forEach(post => {
         if (post.topic) {
             topics[post.topic] = (topics[post.topic] || 0) + 1;
         }
     });
     
-    // Sort topics by count
     const sortedTopics = Object.entries(topics)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
@@ -1427,31 +1352,12 @@ function loadTrendingTopics() {
     }
 }
 
-function filterPostsByTopic(topic) {
-    if (!elements.postsFeed) return;
-    
-    elements.postsFeed.innerHTML = '';
-    currentPage = 0;
-    displayedPosts.clear();
-    
-    // Filter and shuffle posts for this topic
-    const filteredPosts = allPosts.filter(post => post.topic === topic);
-    const shuffledPosts = shuffleArray([...filteredPosts], new Date().getTime());
-    
-    // Display filtered posts
-    shuffledPosts.slice(0, postsPerPage).forEach(post => {
-        const postElement = createPostElement(post, post.id);
-        elements.postsFeed.appendChild(postElement);
-        displayedPosts.add(post.id);
-    });
-    
-    if (elements.loadMoreBtn) {
-        elements.loadMoreBtn.style.display = 'none';
-    }
-}
-
-// Suggested profiles
 function loadSuggestedProfiles() {
+    if (!DATABASEPOSTS || DATABASEPOSTS.length === 0) {
+        console.log('No posts data available for suggested profiles');
+        return;
+    }
+    
     const uniqueUsers = new Map();
     
     DATABASEPOSTS.forEach(post => {
@@ -1468,7 +1374,6 @@ function loadSuggestedProfiles() {
         }
     });
     
-    // Convert to array and sort by total likes
     const suggestedProfiles = Array.from(uniqueUsers.values())
         .sort((a, b) => b.totalLikes - a.totalLikes)
         .slice(0, 5);
@@ -1496,7 +1401,298 @@ function loadSuggestedProfiles() {
     }
 }
 
-// Post creation functions
+// ==================== PROFILE FUNCTIONS ====================
+// ==================== PROFILE FUNCTIONS ====================
+
+function showOwnProfile() {
+    if (!currentUser || currentUser.isGuest) {
+        alert('Please login to view your profile!');
+        return;
+    }
+    
+    // Find posts made by the current user
+    const userPosts = DATABASEPOSTS.filter(post => 
+        post.username === currentUser.username || 
+        post.username.toLowerCase() === currentUser.username.toLowerCase()
+    );
+    
+    console.log(`Found ${userPosts.length} posts for user ${currentUser.username}`);
+    
+    if (userPosts.length === 0) {
+        // Show profile even if user has no posts
+        showUserProfile(currentUser.username, currentUser.name, true);
+        return;
+    }
+    
+    showUserProfile(currentUser.username, currentUser.name, true);
+}
+
+function showUserProfile(username, name, isOwnProfile = false) {
+    console.log(`Showing profile for ${username} (isOwnProfile: ${isOwnProfile})`);
+    
+    // Find all posts by this user (case-insensitive match)
+    const userPosts = DATABASEPOSTS.filter(post => 
+        post.username === username || 
+        post.username.toLowerCase() === username.toLowerCase()
+    );
+    
+    console.log(`Found ${userPosts.length} posts for ${username}`);
+    
+    if (userPosts.length === 0 && !isOwnProfile) {
+        alert('User not found or has no posts');
+        return;
+    }
+    
+    // Calculate statistics
+    const totalLikes = userPosts.reduce((sum, post) => sum + post.likes, 0);
+    const postsCount = userPosts.length;
+    
+    // Find mentions of this user
+    const userMentions = getMentionsForUser(username);
+    
+    // Calculate average likes per post
+    const averageLikes = postsCount > 0 ? Math.round(totalLikes / postsCount) : 0;
+    
+    // Find first post date for joined date
+    let joinedDate = 'Recently';
+    if (userPosts.length > 0) {
+        const sortedPosts = [...userPosts].sort((a, b) => {
+            const dateA = parseCustomDate(a.datePost);
+            const dateB = parseCustomDate(b.datePost);
+            return dateA - dateB;
+        });
+        
+        const firstPost = sortedPosts[0];
+        if (firstPost && firstPost.datePost) {
+            joinedDate = formatJoinedDate(parseCustomDate(firstPost.datePost));
+        }
+    }
+    
+    // Update profile header
+    const profileHeader = document.getElementById('profileHeader');
+    if (profileHeader) {
+        profileHeader.innerHTML = `
+            <div class="profile-header">
+                <div class="profile-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e3a8a&color=fff&size=128" alt="${name}">
+                    ${isOwnProfile ? '<div class="profile-badge">You</div>' : ''}
+                </div>
+                <h2 id="profileName">${name}</h2>
+                <div class="profile-username">@${username}</div>
+                
+                <div class="profile-stats">
+                    <div class="stat-item">
+                        <span class="stat-value">${postsCount}</span>
+                        <span class="stat-label">Posts</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value">${totalLikes.toLocaleString()}</span>
+                        <span class="stat-label">Total Likes</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value">${userMentions.length}</span>
+                        <span class="stat-label">Mentions</span>
+                    </div>
+                    ${averageLikes > 0 ? `
+                    <div class="stat-item">
+                        <span class="stat-value">${averageLikes.toLocaleString()}</span>
+                        <span class="stat-label">Avg. Likes</span>
+                    </div>
+                    ` : ''}
+                </div>
+                
+                <div class="profile-meta">
+                    <div class="joined-date">
+                        <i class="fas fa-calendar-alt"></i>
+                        Joined ${joinedDate}
+                    </div>
+                    ${isOwnProfile ? `
+                    <div class="profile-actions">
+                        <button class="btn-secondary" onclick="handleLogout()">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Update profile name
+    const profileNameElement = document.getElementById('profileName');
+    if (profileNameElement) profileNameElement.textContent = name;
+    
+    // Create profile content
+    const profilePosts = document.getElementById('profilePosts');
+    if (profilePosts) {
+        profilePosts.innerHTML = '';
+        
+        const tabsHTML = `
+            <div class="profile-tabs">
+                <button class="profile-tab active" data-tab="posts">
+                    <i class="fas fa-newspaper"></i>
+                    Posts (${postsCount})
+                </button>
+                <button class="profile-tab" data-tab="mentions">
+                    <i class="fas fa-at"></i>
+                    Mentions (${userMentions.length})
+                </button>
+                ${isOwnProfile ? `
+                <button class="profile-tab" data-tab="liked">
+                    <i class="fas fa-heart"></i>
+                    Liked Posts (${currentUser?.likedPosts?.size || 0})
+                </button>
+                ` : ''}
+            </div>
+            <div class="profile-content">
+                <div class="tab-content active" id="postsTab"></div>
+                <div class="tab-content" id="mentionsTab"></div>
+                ${isOwnProfile ? `<div class="tab-content" id="likedTab"></div>` : ''}
+            </div>
+        `;
+        
+        profilePosts.innerHTML = tabsHTML;
+        
+        // Populate posts tab
+        const postsTab = document.getElementById('postsTab');
+        if (userPosts.length > 0) {
+            // Sort posts by date (newest first)
+            const userPostsSorted = [...userPosts].sort((a, b) => {
+                const dateA = parseCustomDate(a.datePost);
+                const dateB = parseCustomDate(b.datePost);
+                return dateB - dateA; // Newest first
+            });
+            
+            userPostsSorted.forEach((post) => {
+                // Find the post in allPosts to get its ID
+                const foundPost = allPosts.find(p => 
+                    p.username === post.username && 
+                    p.datePost === post.datePost &&
+                    p.content === post.content
+                );
+                
+                if (foundPost) {
+                    const postElement = createPostElement(foundPost, foundPost.id);
+                    postsTab.appendChild(postElement);
+                } else {
+                    // If not found in allPosts, create with a temporary ID
+                    const tempId = Date.now() + Math.random();
+                    const postElement = createPostElement(post, tempId);
+                    postsTab.appendChild(postElement);
+                }
+            });
+        } else {
+            postsTab.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-newspaper"></i>
+                    <h3>No posts yet</h3>
+                    <p>${isOwnProfile ? 'You haven\'t posted anything yet.' : 'This user hasn\'t posted anything yet.'}</p>
+                    ${isOwnProfile ? `
+
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        // Populate mentions tab
+        const mentionsTab = document.getElementById('mentionsTab');
+        if (userMentions.length > 0) {
+            userMentions.forEach(mention => {
+                const foundPost = allPosts.find(p => p.id === mention.postId);
+                if (foundPost) {
+                    const postElement = createPostElement(foundPost, mention.postId);
+                    mentionsTab.appendChild(postElement);
+                }
+            });
+        } else {
+            mentionsTab.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-at"></i>
+                    <h3>No mentions yet</h3>
+                    <p>${isOwnProfile ? 'You haven\'t been mentioned yet.' : 'This user hasn\'t been mentioned yet.'}</p>
+                </div>
+            `;
+        }
+        
+        // Populate liked posts tab (only for own profile)
+        if (isOwnProfile) {
+            const likedTab = document.getElementById('likedTab');
+            const likedPosts = Array.from(currentUser?.likedPosts || []);
+            
+            if (likedPosts.length > 0) {
+                // Get actual post objects for liked post IDs
+                const likedPostObjects = likedPosts
+                    .map(postId => allPosts.find(p => p.id === postId))
+                    .filter(post => post); // Remove undefined
+                
+                likedPostObjects.forEach(post => {
+                    const postElement = createPostElement(post, post.id);
+                    likedTab.appendChild(postElement);
+                });
+            } else {
+                likedTab.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-heart"></i>
+                        <h3>No liked posts yet</h3>
+                        <p>Posts you like will appear here.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Add tab click event listeners
+        document.querySelectorAll('.profile-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                // Update active tab
+                document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update active content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(`${tabName}Tab`).classList.add('active');
+            });
+        });
+    }
+    
+    // Show the profile modal
+    if (elements.profileModal) {
+        elements.profileModal.classList.add('active');
+    }
+}
+
+// Enhanced getMentionsForUser function
+function getMentionsForUser(username) {
+    const userMentions = [];
+    
+    // Use allPosts instead of DATABASEPOSTS to get proper IDs
+    allPosts.forEach((post, index) => {
+        if (post.content && post.content.toLowerCase().includes(`@${username.toLowerCase()}`)) {
+            userMentions.push({
+                postId: post.id,
+                post: post,
+                datePost: parseCustomDate(post.datePost),
+                mentionedBy: post.username,
+                mentionedByName: post.name,
+                topic: post.topic || '',
+                content: post.content,
+                excerpt: post.content.length > 100 ? 
+                    post.content.substring(0, 100) + '...' : 
+                    post.content
+            });
+        }
+    });
+    
+    // Sort by date (newest first)
+    userMentions.sort((a, b) => b.datePost - a.datePost);
+    return userMentions;
+}
+
+// ==================== POST CREATION FUNCTIONS ====================
+
 function showPostModal() {
     if (elements.postModal) {
         elements.postModal.classList.add('active');
@@ -1571,21 +1767,15 @@ function processLink() {
     
     if (!link) return;
     
-    // Convert YouTube shorts links to embed links
     let embedLink = link;
     
-    // Handle YouTube shorts
     if (link.includes('youtube.com/shorts/')) {
         const videoId = link.match(/shorts\/([^?]+)/)[1];
         embedLink = `https://www.youtube.com/embed/${videoId}`;
-    }
-    // Handle youtu.be links
-    else if (link.includes('youtu.be/')) {
+    } else if (link.includes('youtu.be/')) {
         const videoId = link.match(/youtu\.be\/([^?]+)/)[1];
         embedLink = `https://www.youtube.com/embed/${videoId}`;
-    }
-    // Handle regular YouTube links
-    else if (link.includes('youtube.com/watch')) {
+    } else if (link.includes('youtube.com/watch')) {
         const videoId = new URL(link).searchParams.get('v');
         if (videoId) {
             embedLink = `https://www.youtube.com/embed/${videoId}`;
@@ -1605,7 +1795,6 @@ function createPost() {
     const content = elements.postContent.value.trim();
     const topic = elements.postTopic ? elements.postTopic.value.trim() : '';
     
-    // Check if there's at least one content type
     const hasMedia = elements.mediaPreview && 
                      elements.mediaPreview.classList.contains('active') && 
                      elements.mediaPreview.innerHTML.trim() !== '';
@@ -1615,10 +1804,8 @@ function createPost() {
         return;
     }
     
-    // In a real app, this would send to a server
     alert('Post functionality requires backend integration. In a real app, this would save to database.');
     
-    // Reset form
     if (elements.postContent) elements.postContent.value = '';
     if (elements.postTopic) elements.postTopic.value = '';
     if (elements.mediaPreview) {
@@ -1667,10 +1854,8 @@ function createNewPost() {
         return;
     }
     
-    // In a real app, this would be sent to a server
     alert(`Post created successfully!\n\nNote: In a real app, this would be saved to the database.`);
     
-    // Reset form and close modal
     resetPostForm();
     if (elements.postModal) {
         elements.postModal.classList.remove('active');
@@ -1682,155 +1867,9 @@ function resetPostForm() {
     if (elements.postTopicModal) elements.postTopicModal.value = '';
     if (elements.mediaPreviewModal) elements.mediaPreviewModal.innerHTML = '';
 }
-// Add sound functions at the top of your main.js (after global variables)
-function playLikeSound() {
-    try {
-        // Create a simple beep sound for like
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.frequency.value = 523.25; // C5 note (pleasant sound)
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.5);
-    } catch (error) {
-        console.log('Audio context not supported, using fallback sound');
-        // Fallback: Use HTML5 audio if available
-        playFallbackSound('like');
-    }
-}
 
-function playUnlikeSound() {
-    try {
-        // Create a different sound for unlike
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.frequency.value = 392.00; // G4 note (lower, softer sound)
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.3);
-    } catch (error) {
-        console.log('Audio context not supported, using fallback sound');
-        // Fallback: Use HTML5 audio if available
-        playFallbackSound('unlike');
-    }
-}
+// ==================== MOBILE FUNCTIONS ====================
 
-function playFallbackSound(type) {
-    try {
-        // Create simple beep using Web Audio API fallback
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        
-        oscillator.connect(audioContext.destination);
-        oscillator.frequency.value = type === 'like' ? 600 : 400;
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.1);
-    } catch (error) {
-        // Last resort: Use a div click sound simulation
-        console.log('Playing simulated sound');
-    }
-}
-// Update the handleLike function
-function handleLike(postId, button) {
-    if (!currentUser || currentUser.isGuest) {
-        alert('Please login to like posts!');
-        return;
-    }
-    
-    const post = allPosts.find(p => p.id === postId);
-    if (!post) return;
-    
-    if (!currentUser.likedPosts) currentUser.likedPosts = new Set();
-    
-    // Get the post element first to get current displayed likes
-    const postElement = button.closest('.post-card');
-    const likesSpan = postElement.querySelector('.post-stats span:first-child');
-    
-    // Parse current likes from the DOM (this is the actual displayed value)
-    let currentLikes = post.likes;
-    if (likesSpan) {
-        const likesText = likesSpan.textContent;
-        currentLikes = parseInt(likesText.replace(/[^0-9]/g, ''));
-    }
-    
-    if (currentUser.likedPosts.has(postId)) {
-        // Unlike
-        currentUser.likedPosts.delete(postId);
-        currentLikes--;
-        button.classList.remove('liked');
-        button.innerHTML = '<i class="fas fa-heart"></i> Like';
-        
-        // Play unlike sound
-        playUnlikeSound();
-        
-    } else {
-        // Like
-        currentUser.likedPosts.add(postId);
-        currentLikes++;
-        button.classList.add('liked');
-        button.innerHTML = '<i class="fas fa-heart"></i> Liked';
-        
-        // Play like sound
-        playLikeSound();
-        
-        // Add a subtle animation
-        button.style.transform = 'scale(1.2)';
-        setTimeout(() => {
-            button.style.transform = 'scale(1)';
-        }, 200);
-    }
-    
-    // Update the post object
-    post.likes = currentLikes;
-    
-    // Update likes count in post stats
-    if (likesSpan) {
-        likesSpan.textContent = `${currentLikes.toLocaleString()} likes`;
-        
-        // Add animation to likes count
-        likesSpan.style.color = 'var(--accent)';
-        setTimeout(() => {
-            likesSpan.style.color = '';
-        }, 300);
-    }
-    
-    // Save user data if logged in
-    saveCurrentUser();
-}
-// Scroll to post
-function scrollToPost(postId) {
-    const postElement = document.querySelector(`[data-post-id="${postId}"]`);
-    if (postElement) {
-        // Highlight the post temporarily
-        postElement.style.boxShadow = '0 0 0 3px var(--accent)';
-        postElement.style.transition = 'box-shadow 0.3s';
-        setTimeout(() => {
-            postElement.style.boxShadow = '';
-        }, 2000);
-        
-        postElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-}
-
-// Mobile menu functions
 function openMobileMenu() {
     if (elements.mobileMenu) {
         elements.mobileMenu.classList.add('active');
@@ -1849,7 +1888,8 @@ function toggleUserMenu() {
     }
 }
 
-// Theme handling
+// ==================== THEME FUNCTIONS ====================
+
 function setupTheme() {
     const savedTheme = localStorage.getItem('meko-theme');
     if (savedTheme === 'light') {
@@ -1860,155 +1900,7 @@ function setupTheme() {
         }
     }
 }
-// main.js - Add this function
-function showOwnProfile() {
-    if (!currentUser || currentUser.isGuest) {
-        alert('Please login to view your profile!');
-        return;
-    }
-    
-    // Get logged-in user's posts from DATABASEPOSTS
-    const userPosts = DATABASEPOSTS.filter(post => post.username === currentUser.username);
-    
-    if (userPosts.length === 0) {
-        // User has no posts yet, but still show profile
-        showUserProfile(currentUser.username, currentUser.name);
-        return;
-    }
-    
-    // Show the user's profile
-    showUserProfile(currentUser.username, currentUser.name);
-}
 
-// Update showUserProfile to show mentions section
-function showUserProfile(username, name) {
-    const userPosts = DATABASEPOSTS.filter(post => post.username === username);
-    const totalLikes = userPosts.reduce((sum, post) => sum + post.likes, 0);
-    const postsCount = userPosts.length;
-    
-    // Get mentions for this user
-    const userMentions = getMentionsForUser(username);
-    const firstPost = userPosts[userPosts.length - 1];
-    const joinedDate = firstPost ? formatJoinedDate(parseCustomDate(firstPost.datePost)) : 'Recently';
-    
-    const profileHeader = document.getElementById('profileHeader');
-    if (profileHeader) {
-        profileHeader.innerHTML = `
-            <div class="profile-header">
-                <div class="profile-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e3a8a&color=fff" alt="${name}">
-                </div>
-                <h2 id="profileName">${name}</h2>
-                <div class="profile-username">@${username}</div>
-                <div class="profile-stats">
-                    <div class="stat-item">
-                        <span class="stat-value">${postsCount}</span>
-                        <span class="stat-label">Posts</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value">${totalLikes.toLocaleString()}</span>
-                        <span class="stat-label">Total Likes</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value">${userMentions.length}</span>
-                        <span class="stat-label">Mentions</span>
-                    </div>
-                </div>
-                <div class="joined-date">Joined ${joinedDate}</div>
-            </div>
-        `;
-    }
-    
-    const profileNameElement = document.getElementById('profileName');
-    if (profileNameElement) profileNameElement.textContent = name;
-    
-    const profilePosts = document.getElementById('profilePosts');
-    if (profilePosts) {
-        profilePosts.innerHTML = '';
-        
-        // Create tabs for posts and mentions
-        profilePosts.innerHTML = `
-            <div class="profile-tabs">
-                <button class="profile-tab active" data-tab="posts">Posts (${postsCount})</button>
-                <button class="profile-tab" data-tab="mentions">Mentions (${userMentions.length})</button>
-            </div>
-            <div class="profile-content">
-                <div class="tab-content active" id="postsTab">
-                    <!-- Posts will be loaded here -->
-                </div>
-                <div class="tab-content" id="mentionsTab">
-                    <!-- Mentions will be loaded here -->
-                </div>
-            </div>
-        `;
-        
-        // Load posts
-        const postsTab = document.getElementById('postsTab');
-        if (userPosts.length > 0) {
-            const userPostsReversed = [...userPosts].reverse();
-            userPostsReversed.forEach((post) => {
-                const foundPost = allPosts.find(p => 
-                    p.username === post.username && 
-                    p.datePost === post.datePost
-                );
-                
-                if (foundPost) {
-                    const postElement = createPostElement(foundPost, foundPost.id);
-                    postsTab.appendChild(postElement);
-                }
-            });
-        } else {
-            postsTab.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-newspaper"></i>
-                    <h3>No posts yet</h3>
-                    <p>This user hasn't posted anything yet.</p>
-                </div>
-            `;
-        }
-        
-        // Load mentions
-        const mentionsTab = document.getElementById('mentionsTab');
-        if (userMentions.length > 0) {
-            userMentions.forEach(mention => {
-                const foundPost = allPosts.find(p => p.id === mention.postId);
-                if (foundPost) {
-                    const postElement = createPostElement(foundPost, mention.postId);
-                    mentionsTab.appendChild(postElement);
-                }
-            });
-        } else {
-            mentionsTab.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-at"></i>
-                    <h3>No mentions yet</h3>
-                    <p>This user hasn't been mentioned yet.</p>
-                </div>
-            `;
-        }
-        
-        // Add tab switching
-        document.querySelectorAll('.profile-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                const tabName = tab.dataset.tab;
-                
-                // Update active tab
-                document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                
-                // Show corresponding content
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.classList.remove('active');
-                });
-                document.getElementById(`${tabName}Tab`).classList.add('active');
-            });
-        });
-    }
-    
-    if (elements.profileModal) {
-        elements.profileModal.classList.add('active');
-    }
-}
 function toggleTheme() {
     if (document.body.classList.contains('dark-mode')) {
         document.body.classList.remove('dark-mode');
@@ -2027,10 +1919,459 @@ function toggleTheme() {
     }
 }
 
-// Initialize the app when DOM is loaded
+// ==================== SETUP & INITIALIZATION ====================
+function setupEventListeners() {
+    // Auth event listeners
+    if (elements.authTabs) {
+        elements.authTabs.forEach(tab => {
+            tab.addEventListener('click', switchAuthTab);
+        });
+    }
+    
+    if (elements.loginForm) {
+        elements.loginForm.addEventListener('submit', handleLogin);
+    }
+    
+    if (elements.signupForm) {
+        elements.signupForm.addEventListener('submit', handleSignup);
+    }
+    
+    if (elements.createNewAccount) {
+        elements.createNewAccount.addEventListener('click', () => {
+            document.querySelector('.auth-tab[data-tab="signup"]').click();
+        });
+    }
+    
+    // Theme toggle
+    if (elements.themeToggleBtn) {
+        elements.themeToggleBtn.addEventListener('click', toggleTheme);
+    }
+    
+    // Search functionality
+    if (elements.searchInput) {
+        elements.searchInput.addEventListener('input', handleSearch);
+        elements.searchInput.addEventListener('focus', showSearchResults);
+    }
+    
+    if (elements.searchToggle) {
+        elements.searchToggle.addEventListener('click', toggleSearchBar);
+    }
+    
+    if (elements.bottomSearchBtn) {
+        elements.bottomSearchBtn.addEventListener('click', toggleSearchBar);
+    }
+    
+    // Post creation
+    if (elements.createPostBtn) {
+        elements.createPostBtn.addEventListener('click', showPostModal);
+    }
+    
+    if (elements.submitPostBtn) {
+        elements.submitPostBtn.addEventListener('click', createPost);
+    }
+    
+    if (elements.submitNewPostBtn) {
+        elements.submitNewPostBtn.addEventListener('click', createNewPost);
+    }
+    
+    if (elements.createPostMobile) {
+        elements.createPostMobile.addEventListener('click', showPostModal);
+    }
+    
+    if (elements.bottomCreatePostBtn) {
+        elements.bottomCreatePostBtn.addEventListener('click', showPostModal);
+    }
+    
+    // Modal controls
+    if (elements.closeProfileModal) {
+        elements.closeProfileModal.addEventListener('click', () => {
+            elements.profileModal.classList.remove('active');
+        });
+    }
+    
+    if (elements.closePostModal) {
+        elements.closePostModal.addEventListener('click', () => {
+            elements.postModal.classList.remove('active');
+            resetPostForm();
+        });
+    }
+    
+    // Load more posts
+    if (elements.loadMoreBtn) {
+        elements.loadMoreBtn.addEventListener('click', loadMorePosts);
+    }
+    
+    // Media buttons
+    document.querySelectorAll('.media-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.dataset.type;
+            handleMediaButtonClick(type);
+        });
+    });
+    
+    // Profile links
+    if (elements.profileLink) {
+        elements.profileLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showOwnProfile();
+        });
+    }
+    
+    if (elements.mobileProfileLink) {
+        elements.mobileProfileLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showOwnProfile();
+            closeMobileMenu();
+        });
+    }
+    
+    if (elements.bottomProfileBtn) {
+        elements.bottomProfileBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showOwnProfile();
+        });
+    }
+    
+    // Also update the user menu toggle to close when clicking profile
+    if (elements.userMenu && elements.menuToggle) {
+        elements.menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleUserMenu();
+        });
+        
+        // Close menu when clicking profile link inside it
+        const menuProfileLink = elements.userMenu.querySelector('#profileLink');
+        if (menuProfileLink) {
+            menuProfileLink.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showOwnProfile();
+                if (elements.userMenu) {
+                    elements.userMenu.classList.remove('active');
+                }
+            });
+        }
+    }
+    
+    // Media buttons in modal
+    if (elements.addImageBtn) {
+        elements.addImageBtn.addEventListener('click', () => addMediaToPost('image'));
+    }
+    
+    if (elements.addVideoBtn) {
+        elements.addVideoBtn.addEventListener('click', () => addMediaToPost('video'));
+    }
+    
+    if (elements.addLinkBtn) {
+        elements.addLinkBtn.addEventListener('click', () => addMediaToPost('iframe'));
+    }
+    
+    // Mobile menu
+    if (elements.mobileMenuToggle) {
+        elements.mobileMenuToggle.addEventListener('click', openMobileMenu);
+    }
+    
+    if (elements.closeMobileMenu) {
+        elements.closeMobileMenu.addEventListener('click', closeMobileMenu);
+    }
+    
+    // User menu
+    if (elements.menuToggle) {
+        elements.menuToggle.addEventListener('click', toggleUserMenu);
+    }
+    
+    if (elements.logoutLink) {
+        elements.logoutLink.addEventListener('click', handleLogout);
+    }
+    
+    if (elements.mobileLogoutLink) {
+        elements.mobileLogoutLink.addEventListener('click', handleLogout);
+    }
+    
+    // Close modals when clicking outside
+    window.addEventListener('click', (e) => {
+        if (elements.profileModal && e.target === elements.profileModal) {
+            elements.profileModal.classList.remove('active');
+        }
+        if (elements.postModal && e.target === elements.postModal) {
+            elements.postModal.classList.remove('active');
+            resetPostForm();
+        }
+        
+        if (elements.userMenu && !elements.userMenu.contains(e.target) && e.target !== elements.menuToggle) {
+            elements.userMenu.classList.remove('active');
+        }
+        
+        if (elements.searchResults && !elements.searchResults.contains(e.target) && e.target !== elements.searchInput) {
+            elements.searchResults.style.display = 'none';
+        }
+    });
+    
+    // Close search on escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (elements.searchResults) {
+                elements.searchResults.style.display = 'none';
+            }
+            document.querySelector('.search-bar')?.classList.remove('active');
+        }
+    });
+}
+
+function initApp() {
+    console.log('Initializing application...');
+    
+    // Ensure USERS_KEY exists in localStorage
+    if (!localStorage.getItem(USERS_KEY)) {
+        localStorage.setItem(USERS_KEY, JSON.stringify({}));
+    }
+    
+    setupEventListeners();
+    setupTheme();
+    
+    // Note: Posts will be loaded after fetch completes
+    console.log('App initialized, waiting for posts data...');
+}
+// ==================== POST DATA FETCHING & PROCESSING ====================
+function processPosts(postsArray) {
+    console.log('Processing posts data...');
+    
+    if (!Array.isArray(postsArray)) {
+        console.error('postsArray is not an array');
+        
+        // Try to extract array from object
+        if (postsArray && typeof postsArray === 'object') {
+            if (postsArray.posts && Array.isArray(postsArray.posts)) {
+                postsArray = postsArray.posts;
+            } else if (postsArray.record && postsArray.record.posts && Array.isArray(postsArray.record.posts)) {
+                postsArray = postsArray.record.posts;
+            } else if (postsArray.record && Array.isArray(postsArray.record)) {
+                postsArray = postsArray.record;
+            } else {
+                postsArray = [];
+            }
+        } else {
+            postsArray = [];
+        }
+    }
+    
+    // Validate posts
+    const validPosts = postsArray.filter(post => {
+        if (!post || typeof post !== 'object') return false;
+        if (!post.name || !post.username || !post.datePost) return false;
+        
+        try {
+            const parsedDate = parseCustomDate(post.datePost);
+            return !isNaN(parsedDate.getTime());
+        } catch (e) {
+            return false;
+        }
+    });
+    
+    console.log(`Valid posts: ${validPosts.length}/${postsArray.length}`);
+    
+    // Update DATABASEPOSTS - PRESERVE ORIGINAL ORDER for consistent ID assignment
+    DATABASEPOSTS = [...validPosts];
+    
+    // Clear feed
+    if (elements.postsFeed) {
+        elements.postsFeed.innerHTML = '';
+    }
+    
+    // Reset state
+    displayedPosts.clear();
+    currentPage = 0;
+    allPosts = [];
+
+    if (DATABASEPOSTS.length > 0) {
+        console.log('Sample posts in original order:');
+        DATABASEPOSTS.slice(0, 3).forEach((post, i) => {
+            console.log(`${i + 1}. ${post.name} (@${post.username}): ${post.datePost}`);
+        });
+        
+        // Initialize posts with consistent IDs
+        initializePosts(); 
+        
+        // Load extra features
+        loadTrendingTopics();
+        loadSuggestedProfiles();
+        
+        // Load initial posts
+        loadPosts(); 
+        
+        console.log('Posts processing complete');
+        
+        // Update UI
+        if (elements.loadMoreBtn) {
+            elements.loadMoreBtn.style.display = 'block';
+            elements.loadMoreBtn.disabled = false;
+            elements.loadMoreBtn.textContent = 'Load More';
+        }
+    } else {
+        console.log('No valid posts to display');
+        
+        if (elements.postsFeed) {
+            elements.postsFeed.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-newspaper"></i>
+                    <h3>No posts available</h3>
+                    <p>No posts could be loaded.</p>
+                </div>
+            `;
+        }
+        
+        if (elements.loadMoreBtn) {
+            elements.loadMoreBtn.style.display = 'none';
+        }
+    }
+}
+// ==================== FETCH POSTS ====================
+function fetchPosts() {
+    console.log('Fetching posts from JSONBin...');
+    
+    // Show loading state
+    if (elements.postsFeed) {
+        elements.postsFeed.innerHTML = `
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <p>Loading posts...</p>
+            </div>
+        `;
+    }
+    
+    fetch('https://api.jsonbin.io/v3/b/693d2f6dd0ea881f40263fd0')
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Full API response received');
+            console.log('Data type:', typeof data);
+            console.log('Data structure:', data);
+            
+            let postsArray = [];
+            
+            // Check ALL possible structures
+            if (data && data.record && data.record.record && Array.isArray(data.record.record)) {
+                // Structure: { record: { posts: [...] } }
+                console.log('Found structure: data.record.record');
+                postsArray = data.record.record;
+            } 
+            else if (data && data.posts && Array.isArray(data.posts)) {
+                // Structure: { posts: [...] }
+                console.log('Found structure: data.posts');
+                postsArray = data.posts;
+            }
+            else if (data && data.record && Array.isArray(data.record)) {
+                // Structure: { record: [...] }
+                console.log('Found structure: data.record');
+                postsArray = data.record;
+            }
+            else if (Array.isArray(data)) {
+                // Structure: [...]
+                console.log('Found structure: data is array');
+                postsArray = data;
+            }
+            else {
+                console.error('Could not find posts array in any structure');
+                console.error('Available keys:', Object.keys(data || {}));
+                throw new Error('Invalid response structure - no posts array found');
+            }
+            
+            console.log(`Successfully extracted ${postsArray.length} posts`);
+            
+            if (postsArray.length > 0) {
+                console.log('First post:', {
+                    name: postsArray[0].name,
+                    username: postsArray[0].username,
+                    datePost: postsArray[0].datePost,
+                    content: postsArray[0].content?.substring(0, 50),
+                    likes: postsArray[0].likes,
+                    topic: postsArray[0].topic
+                });
+            }
+            
+            // Process the posts
+            processPosts(postsArray);
+        })
+        .catch(error => {
+            console.error('Fetch error:', error);
+            
+            // Show error in UI
+            if (elements.postsFeed) {
+                elements.postsFeed.innerHTML = `
+                    <div class="error-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3>Failed to Load Posts</h3>
+                        <p>${error.message}</p>
+                        <button onclick="fetchPosts()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: var(--accent); color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
+                            Retry
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // Initialize with empty array
+            processPosts([]);
+        });
+}
+// ==================== DEBUG FUNCTION ====================
+function debugFetch() {
+    console.log('=== DEBUG: Testing API directly ===');
+    
+    fetch('https://api.jsonbin.io/v3/b/693d2f6dd0ea881f40263fd0')
+        .then(r => r.json())
+        .then(data => {
+            console.log('DEBUG - Full response:', data);
+            console.log('DEBUG - Type of data:', typeof data);
+            console.log('DEBUG - Keys in data:', Object.keys(data));
+            
+            if (data.posts) {
+                console.log('DEBUG - data.posts exists:', typeof data.posts);
+                console.log('DEBUG - data.posts is array?', Array.isArray(data.posts));
+                if (Array.isArray(data.posts)) {
+                    console.log('DEBUG - First post:', data.posts[0]);
+                    console.log('DEBUG - Posts count:', data.posts.length);
+                }
+            }
+            
+            // Check if there's any array in the response
+            for (const key in data) {
+                console.log(`DEBUG - Key "${key}":`, typeof data[key], Array.isArray(data[key]) ? `[Array, length: ${data[key].length}]` : data[key]);
+            }
+        })
+        .catch(e => console.error('DEBUG - Fetch error:', e));
+}
+
+/// ==================== APPLICATION START ====================
+
+// Initialize the application
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM fully loaded, initializing app...');
+    
+    // Initialize app structure and event listeners
+    initApp();
+    
+    // Check authentication state
+    checkAuth();
+    
+    // Fetch posts from API
+    fetchPosts();
+});
+
+// If DOM is already loaded, initialize immediately
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded listener added');
+    });
 } else {
-    // DOM is already loaded
-    init();
+    console.log('DOM already loaded, initializing now');
+    initApp();
+    checkAuth();
+    fetchPosts();
 }
