@@ -1,7 +1,7 @@
 // main.js
 // Global variables
 let currentUser = null;
-let postsPerPage = 20;
+let postsPerPage = 5;
 let currentPage = 0;
 let currentMediaType = null;
 let allPosts = [];
@@ -538,22 +538,45 @@ function loadPosts() {
 function loadMorePosts() {
     loadPosts();
 }
-
 function createPostElement(post, postId) {
     const postElement = document.createElement('div');
     postElement.className = 'post-card';
     postElement.dataset.postId = postId;
     postElement.dataset.topic = post.topic || '';
     
+    // ===== ENHANCED AD DETECTION =====  
+    const isApiAd = post.iframe && post.iframe === "ad_service-api:290Ae028e028a028_920397Ae828";
+    const isAdTopic = post.topic && (post.topic.toLowerCase().includes('ad') || 
+                                     post.topic.toLowerCase().includes('ads') || 
+                                     post.topic.toLowerCase().includes('sponsored'));
+    const isSponsoredName = post.name && post.name.toLowerCase().includes('sponsored');
+    const isCreatorAd = post.topic && (post.topic.toLowerCase() === 'ads' || 
+                                       post.topic.toLowerCase() === 'ads.brand');
+    
+    // Determine ad type
+    let adType = null;
+    if (isApiAd) {
+        adType = 'API_AD'; // Official API ad
+    } else if (isSponsoredName) {
+        adType = 'SPONSORED_AD'; // Sponsored custom ad
+    } else if (isCreatorAd) {
+        adType = 'CREATOR_AD'; // Creator-made ad
+    } else if (isAdTopic) {
+        adType = 'TOPIC_AD'; // Topic-based ad
+    }
+    
+    const isAnyAd = adType !== null;
+    
     const postDate = parseCustomDate(post.datePost);
     const formattedDate = formatDateToCustom(postDate);
     
     const userPosts = DATABASEPOSTS.filter(p => p.username === post.username);
     const totalLikes = userPosts.reduce((sum, p) => sum + p.likes, 0);
-    const postsCount = userPosts.length;
     
     const firstPost = userPosts[userPosts.length - 1];
-    const joinedDate = firstPost ? formatJoinedDate(parseCustomDate(firstPost.datePost)) : 'Recently';
+    const joinedDate = firstPost
+        ? formatJoinedDate(parseCustomDate(firstPost.datePost))
+        : 'Recently';
     
     let mentionedUsers = [];
     let processedContent = post.content || '';
@@ -561,80 +584,207 @@ function createPostElement(post, postId) {
     if (post.content) {
         const mentionRegex = /@(\w+)/g;
         let match;
-        mentionedUsers = [];
         
         while ((match = mentionRegex.exec(post.content)) !== null) {
             mentionedUsers.push(match[1]);
         }
         
-        processedContent = post.content.replace(/@(\w+)/g, 
+        processedContent = post.content.replace(
+            /@(\w+)/g,
             '<span class="mention" data-username="$1">@$1</span>'
         );
     }
     
-    const mentionsCurrentUser = currentUser && !currentUser.isGuest && 
-                                mentionedUsers.includes(currentUser.username);
+    const mentionsCurrentUser =
+        currentUser &&
+        !currentUser.isGuest &&
+        mentionedUsers.includes(currentUser.username);
     
-    postElement.innerHTML = `
-        <div class="post-header">
-            <div class="post-user" data-username="${post.username}">
-                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(post.name)}&background=1e3a8a&color=fff" alt="${post.name}">
-                <div class="user-info">
-                    <h3>${post.name}</h3>
-                    <span>@${post.username}</span>
-                </div>
+    // Determine ad label and styling
+    let adLabel = '';
+    let adClass = '';
+    let userDisplayName = post.name;
+    let userDisplayUsername = '@' + post.username;
+    
+    switch(adType) {
+        case 'API_AD':
+            adLabel = 'Sponsored • Ad';
+            adClass = 'ad-api';
+            userDisplayName = 'Sponsored';
+            userDisplayUsername = 'Advertisement';
+            break;
+        case 'SPONSORED_AD':
+            adLabel = 'Sponsored';
+            adClass = 'ad-sponsored';
+            userDisplayName = 'Sponsored';
+            userDisplayUsername = '@' + post.username; // Keep original username
+            break;
+        case 'CREATOR_AD':
+            adLabel = 'Creator Ad';
+            adClass = 'ad-creator';
+            // Keep original name and username
+            break;
+        case 'TOPIC_AD':
+            adLabel = 'Promoted';
+            adClass = 'ad-topic';
+            // Keep original name and username
+            break;
+    }
+    
+    // Override renderMediaContent for API ads
+    const renderMediaForThisPost = (post) => {
+        if (adType === 'API_AD') {
+            // For API ads, return the script container instead of iframe
+            return `<div id="ad-${postId}" class="ad-script-container"></div>`;
+        }
+        // For other posts, use the regular renderMediaContent
+        return renderMediaContent(post);
+    };
+    
+    // ===== HTML =====  
+    postElement.innerHTML = `  
+        <div class="post-header ${adClass}">  
+            <div class="post-user" ${!isAnyAd ? `data-username="${post.username}"` : ''}>  
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userDisplayName)}&background=${isAnyAd ? '4a5568' : '1e3a8a'}&color=fff">  
+                <div class="user-info">  
+                    <h3>${userDisplayName} ${isAnyAd ? '<span class="ad-badge">Ad</span>' : ''}</h3>  
+                    <span>${userDisplayUsername}</span>  
+                </div>  
+            </div>  
+            <div class="post-date">${formattedDate}</div>  
+        </div>  
+        
+        <div class="post-content">  
+            ${isAnyAd ? `<div class="ad-container">` : ''}
+            
+            ${processedContent ? `<p class="${isAnyAd ? 'ad-content-text' : ''}">${processedContent}</p>` : ''}
+            
+            ${renderMediaForThisPost(post)}
+            
+            ${isAnyAd ? `</div>` : ''}
+        </div>  
+        
+        ${isAnyAd ? `
+            <div class="post-stats ad-stats">
+                <span class="ad-label">${adLabel}</span>
+                ${post.likes > 0 ? `<span class="ad-likes">${post.likes.toLocaleString()} reactions</span>` : ''}
             </div>
-            <div class="post-date">${formattedDate}</div>
-        </div>
-        <div class="post-content">
-            ${processedContent ? `<p>${processedContent}</p>` : ''}
-            ${renderMediaContent(post)}
-        </div>
-        <div class="post-stats">
-            <span>${post.likes.toLocaleString()} likes</span>
-            ${mentionedUsers.length > 0 ? `<span class="mentions-info">Mentions ${mentionedUsers.length} user${mentionedUsers.length > 1 ? 's' : ''}</span>` : ''}
-            ${mentionsCurrentUser ? `<span class="mention-you">Mentions you!</span>` : ''}
-        </div>
-        <div class="post-actions-buttons">
-            <button class="action-btn ${currentUser?.likedPosts?.has(postId) ? 'liked' : ''}" data-action="like" data-post-id="${postId}">
-                <i class="fas fa-heart"></i> Like
-            </button>
-        </div>
+        ` : `  
+            <div class="post-stats">  
+                <span>${post.likes.toLocaleString()} likes</span>  
+                ${mentionedUsers.length > 0  
+                    ? `<span class="mentions-info">  
+                        Mentions ${mentionedUsers.length} user${  
+                          mentionedUsers.length > 1 ? 's' : ''  
+                      }  
+                       </span>`  
+                    : ''  
+                }  
+                ${mentionsCurrentUser  
+                    ? `<span class="mention-you">Mentions you!</span>`  
+                    : ''  
+                }  
+            </div>  
+            
+            <div class="post-actions-buttons">  
+                <button class="action-btn ${currentUser?.likedPosts?.has(postId) ? 'liked' : ''}" data-action="like" data-post-id="${postId}">  
+                    <i class="fas fa-heart"></i> Like  
+                </button>  
+            </div>  
+        `}  
     `;
     
-    // OBSERVE VIDEO FOR AUTO-PLAY/PAUSE
-    // Use the already declared 'postVideoObserver' from HTML
+    // ===== INJECT AD SCRIPT FOR API ADS =====  
+    if (adType === 'API_AD') {
+        const adContainer = postElement.querySelector(`#ad-${postId}`);
+        if (adContainer) {
+  // Inject both scripts as HTML
+adContainer.innerHTML = `
+<script type="text/javascript">
+  atOptions = {
+  	'key' : 'd00f4eb20818128f182b8839788682d3',
+  	'format' : 'iframe',
+  	'height' : 250,
+  	'width' : 300,
+  	'params' : {}
+  };
+</script>
+<script
+  type="text/javascript"
+  src="https://www.highperformanceformat.com/d00f4eb20818128f182b8839788682d3/invoke.js"
+></script>
+`;
+        }
+        
+        // API ads don't have regular interactions
+        return postElement;
+    }
+    
+    // ===== VIDEO OBSERVER =====  
     const videoElement = postElement.querySelector('.auto-pause-video');
     if (videoElement && typeof postVideoObserver !== 'undefined') {
         postVideoObserver.observe(videoElement);
     }
     
-    const likeBtn = postElement.querySelector('[data-action="like"]');
-    if (likeBtn) {
-        likeBtn.addEventListener('click', () => handleLike(postId, likeBtn));
-    }
-    
-    const userInfo = postElement.querySelector('.post-user');
-    if (userInfo) {
-        userInfo.addEventListener('click', () => showUserProfile(post.username, post.name));
-    }
-    
-    postElement.querySelectorAll('.mention').forEach(mention => {
-        mention.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const username = mention.dataset.username;
-            const userExists = DATABASEPOSTS.some(p => p.username === username);
-            if (userExists) {
-                showUserProfile(username, username);
-            } else {
-                alert(`User @${username} not found`);
+    // ===== LIKE BUTTON =====  
+    if (!isAnyAd) {
+        const likeBtn = postElement.querySelector('[data-action="like"]');
+        if (likeBtn) {
+            likeBtn.addEventListener('click', () => handleLike(postId, likeBtn));
+        }
+    } else if (adType === 'CREATOR_AD' || adType === 'TOPIC_AD') {
+        // Creator/topic ads can still be liked
+        const likeBtn = postElement.querySelector('[data-action="like"]');
+        if (likeBtn) {
+            likeBtn.addEventListener('click', () => {
+                if (!currentUser || currentUser.isGuest) {
+                    alert('Please login to react to ads!');
+                    return;
+                }
+                handleLike(postId, likeBtn);
+            });
+        } else {
+            // If no like button, make the ad-likes clickable
+            const adLikes = postElement.querySelector('.ad-likes');
+            if (adLikes) {
+                adLikes.style.cursor = 'pointer';
+                adLikes.addEventListener('click', () => {
+                    if (!currentUser || currentUser.isGuest) {
+                        alert('Please login to react to ads!');
+                        return;
+                    }
+                    alert('Thanks for your reaction to this ad!');
+                });
             }
+        }
+    }
+    
+    // ===== USER PROFILE =====  
+    if (!isAnyAd || adType === 'CREATOR_AD' || adType === 'TOPIC_AD') {
+        const userInfo = postElement.querySelector('.post-user');
+        if (userInfo) {
+            userInfo.addEventListener('click', () =>
+                showUserProfile(post.username, post.name)
+            );
+        }
+    }
+    
+    // ===== MENTIONS =====  
+    if (!isAnyAd || adType === 'CREATOR_AD' || adType === 'TOPIC_AD') {
+        postElement.querySelectorAll('.mention').forEach(mention => {
+            mention.addEventListener('click', e => {
+                e.stopPropagation();
+                const username = mention.dataset.username;
+                const userExists = DATABASEPOSTS.some(p => p.username === username);
+                userExists
+                    ? showUserProfile(username, username)
+                    : alert(`User @${username} not found`);
+            });
         });
-    });
+    }
     
     return postElement;
 }
-
 // Helper function to convert YouTube URLs to embed format
 function convertToEmbedUrl(url) {
     if (!url) return null;
@@ -2222,6 +2372,7 @@ function extractPostsFromJSON(data) {
     
     return [];
 }
+
 function fetchPosts() {
     console.log("Fetching posts from:", JSON_URL);
 
