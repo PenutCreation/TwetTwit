@@ -124,7 +124,7 @@ content="https://penutcreation.github.io/MEKO/og-image.jpg">
                 <div class="form-options">
                     <label class="checkbox">
                         <input type="checkbox" id="termsAgree" required>
-                        <span>I agree to the <a href="https://penutcreation.github.io/MEKO/PolicyAndService.html#privacy">Terms & Conditions</a></span>
+                        <span>I agree to the <a href="PolicyAndService.html">Terms & Conditions</a></span>
                     </label>
                 </div>
                 <div class="error-message" id="loginError" style="display: none;"></div>
@@ -133,7 +133,7 @@ content="https://penutcreation.github.io/MEKO/og-image.jpg">
             
             <div class="auth-footer">
                 <p>By continuing, you agree to MekoNetwork's 
-                <a href="https://penutcreation.github.io/MEKO/PolicyAndService.html#terms">Terms of Service</a> and <a href="PolicyAndService.html">Privacy Policy</a>.</p>
+                <a href="PolicyAndService.html">Terms of Service</a> and <a href="PolicyAndService.html">Privacy Policy</a>.</p>
             </div>
         </div>
     </div>
@@ -207,6 +207,7 @@ content="https://penutcreation.github.io/MEKO/og-image.jpg">
                     <i class="fas fa-home"></i>
                     <span>Home</span>
                 </a>
+
                 <a href="#" class="mobile-nav-item" id="mobileProfileLink">
                     <i class="fas fa-user"></i>
                     <span>Profile</span>
@@ -361,9 +362,9 @@ content="https://penutcreation.github.io/MEKO/og-image.jpg">
     <i class="fas fa-upload"></i>
     <span>Uploads</span>
 </a>
-            <a href="#" class="bottom-nav-item" id="bottomSearchBtn">
-                <i class="fas fa-search"></i>
-                <span>Search</span>
+            <a href="reel.html" class="bottom-nav-item" id="bottomreelsBtn">
+                <i class="fas fa-film"></i>
+                <span>Videos</span>
             </a>
             <a href="#" class="bottom-nav-item" id="bottomProfileBtn">
                 <i class="fas fa-user"></i>
@@ -502,7 +503,7 @@ const postVideoObserver = new IntersectionObserver(videoObserverCallback, videoO
 
 </script>
 
-<script src="ajaxent/DATABASELOADRUNNE_API-AE2828U292_KAKASK_SODI_SKFN_OSID_ISKD882AJDKOEID82SJJS28DKI38ASU.js"></script>
+<script src="main.js"></script>
 <script>
 // COMPLETE POST-UPLOAD.JS FILE - SIMPLIFIED VERSION
 // For MekoNetwork - Post creation and uploads management
@@ -806,10 +807,9 @@ async function createPost() {
         submitBtn.innerHTML = 'Post';
     }
 }
-
-// Submit to FormSubmit - SEND ONLY PURE JSON
+// Submit to FormSubmit - KEEP JSON PURE, add user info as separate text
 async function submitToFormSubmit(data) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         const form = document.getElementById('postForm');
         const jsonField = document.getElementById('postJsonField');
         const previewField = document.getElementById('postPreview');
@@ -820,29 +820,115 @@ async function submitToFormSubmit(data) {
             return;
         }
         
-        // Create EXACT JSON string with comma at the end
-        const jsonString = JSON.stringify(data, null, 2) + ",";
-        jsonField.value = jsonString;
-        
-        // Set preview to EXACT same JSON (nothing else)
-        previewField.value = jsonString;
-        
-        // Set subject
-        subjectField.value = `New Post: ${data.username}`;
-        
-        // NO EXTRA FIELDS - just the JSON
-        // Remove any extra hidden fields
-        const extraFields = form.querySelectorAll('input:not([name="post_json"]):not([name="_captcha"]):not([name="_template"]):not([name="_subject"]):not([name="_next"]):not([name="preview"])');
-        extraFields.forEach(field => field.remove());
-        
-        // Submit
-        form.submit();
-        
-        // Wait a bit
-        setTimeout(resolve, 800);
+        try {
+            // Get user's IP address (for text only, not in JSON)
+            const ipAddress = await getUserIP();
+            
+            // Create PURE JSON string exactly like your example - NO extra fields
+            const jsonString = JSON.stringify(data, null, 2) + ",";
+            jsonField.value = jsonString;
+            
+            // Create human-readable preview with JSON + user info as separate text
+            const previewText = `
+=== USER SUBMISSION DETAILS ===
+Username: @${data.username}
+Name: ${data.name}
+User Email: ${currentUser.email || "No email provided"}
+IP Address: ${ipAddress}
+Device/Platform: ${detectPlatform()}
+Browser: ${navigator.userAgent}
+Submission Time: ${new Date().toLocaleString()}
+
+=== POST JSON DATA (EXACT FORMAT) ===
+${jsonString}
+
+=== END OF SUBMISSION ===
+            `.trim();
+            
+            previewField.value = previewText;
+            
+            // Set subject
+            subjectField.value = `New Post from ${data.username}`;
+            
+            // Add user email for FormSubmit reply-to (hidden field)
+            let emailField = form.querySelector('input[name="_replyto"]');
+            if (!emailField) {
+                emailField = document.createElement('input');
+                emailField.type = 'hidden';
+                emailField.name = '_replyto';
+                form.appendChild(emailField);
+            }
+            emailField.value = currentUser.email || "";
+            
+            // Submit
+            form.submit();
+            
+            // Wait a bit
+            setTimeout(resolve, 800);
+            
+        } catch (error) {
+            console.error('Error in form submission:', error);
+            reject(error);
+        }
     });
 }
 
+// Get user's IP address (for text display only)
+async function getUserIP() {
+    try {
+        // Try to get IP from multiple sources
+        const ipPromises = [
+            fetch('https://api.ipify.org?format=json').then(r => r.json()),
+            fetch('https://api64.ipify.org?format=json').then(r => r.json())
+        ];
+        
+        // Use the first successful response
+        const response = await Promise.any(ipPromises);
+        
+        if (response.ip) {
+            return response.ip;
+        }
+        
+        return "IP Not Available";
+        
+    } catch (error) {
+        console.log('Could not fetch IP');
+        return "IP Not Available";
+    }
+}
+
+// Detect user platform/device (for text display only)
+function detectPlatform() {
+    const userAgent = navigator.userAgent;
+    let platform = "Desktop";
+    
+    if (/Android/.test(userAgent)) {
+        platform = "Android";
+    } else if (/iPhone|iPad|iPod/.test(userAgent)) {
+        platform = "iOS";
+    } else if (/Windows/.test(userAgent)) {
+        platform = "Windows";
+    } else if (/Mac/.test(userAgent)) {
+        platform = "Mac";
+    } else if (/Linux/.test(userAgent)) {
+        platform = "Linux";
+    } else if (/Mobile/.test(userAgent)) {
+        platform = "Mobile";
+    }
+    
+    return platform;
+}
+
+// Alternative: Simple IP fetch without Promise.any (for older browsers)
+async function getSimpleIP() {
+    try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        return data.ip || "IP Not Available";
+    } catch (error) {
+        return "IP Not Available";
+    }
+}
 // Save post locally
 function savePostToLocalStorage(postData) {
     try {
@@ -1223,4 +1309,4 @@ window.openUploadsModal = function() {
     }
 };
 </script>
-                 </html>
+ </html>
