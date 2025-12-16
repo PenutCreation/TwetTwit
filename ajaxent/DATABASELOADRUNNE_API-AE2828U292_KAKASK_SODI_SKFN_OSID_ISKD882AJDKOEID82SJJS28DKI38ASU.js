@@ -7,6 +7,7 @@ let currentMediaType = null;
 let allPosts = [];
 let displayedPosts = new Set();
 let DATABASEPOSTS = []; // Initialize as empty array
+let sharedPostId = null;
 
 // Store all registered users in localStorage
 const USERS_KEY = 'meko-registered-users';
@@ -38,8 +39,7 @@ const elements = {
     searchToggle: document.getElementById('searchToggle'),
     themeToggleBtn: document.getElementById('themeToggleBtn'),
     themeIcon: document.getElementById('themeIcon'),
-    createPostBtn: document.getElementById('createPostBtn'),
-    submitPostBtn: document.getElementById('submitPostBtn'),
+    
     loadMoreBtn: document.getElementById('loadMoreBtn'),
     profileModal: document.getElementById('profileModal'),
     postModal: document.getElementById('postModal'),
@@ -70,9 +70,9 @@ const elements = {
     mobileUserUsername: document.getElementById('mobileUserUsername'),
     mobileProfileLink: document.getElementById('mobileProfileLink'),
     mobileLogoutLink: document.getElementById('mobileLogoutLink'),
-    createPostMobile: document.getElementById('createPostMobile'),
+    
     bottomSearchBtn: document.getElementById('bottomSearchBtn'),
-    bottomCreatePostBtn: document.getElementById('bottomCreatePostBtn'),
+    
     bottomProfileBtn: document.getElementById('bottomProfileBtn'),
     
     // User menu elements
@@ -238,7 +238,7 @@ function switchAuthTab(e) {
     document.querySelectorAll('.auth-form').forEach(form => {
         form.classList.remove('active');
     });
-    document.getElementById(`${tabName}Form`).classList.add('active');
+     document.getElementById(`${tabName}Form`).classList.add('active');
     
     if (elements.usernameError) elements.usernameError.style.display = 'none';
     if (elements.loginError) elements.loginError.style.display = 'none';
@@ -427,6 +427,665 @@ function handleLogout(e) {
 }
 
 // ==================== POST FUNCTIONS ====================
+
+// Add this function to process URL parameters on page load
+function processUrlParameters() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareParam = urlParams.get('share');
+    
+    if (shareParam) {
+        sharedPostId = shareParam.trim();
+        console.log('Found shared post ID in URL:', sharedPostId);
+        
+        // Wait a moment for posts to load, then try to show the shared post
+        setTimeout(() => {
+            showSharedPostModal(sharedPostId);
+        }, 500);
+    }
+}
+
+// Create a modal to display shared posts
+function createShareModal() {
+    // Check if modal already exists
+    if (document.getElementById('sharePostModal')) return;
+    
+    const modalHTML = `
+        <div class="modal" id="sharePostModal">
+            <div class="modal-content share-post-modal">
+                <div class="modal-header">
+                    <h2>Shared Post</h2>
+                    <button class="close-modal" id="closeShareModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="sharedPostContainer">
+                        <!-- The shared post will be displayed here -->
+                        <div class="loading-shared-post" style="text-align: center; padding: 2rem;">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i>
+                            <p style="margin-top: 1rem; color: var(--text-secondary);">Loading shared post...</p>
+                        </div>
+                    </div>
+                    <div class="share-actions" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                        <button class="btn btn-primary" id="backToFeedsBtn" style="width: 100%;">
+                            <i class="fas fa-home"></i> Back to Feeds
+                        </button>
+                        <button class="btn btn-secondary" id="copyShareLinkBtn" style="width: 100%; margin-top: 0.75rem;">
+                            <i class="fas fa-link"></i> Copy Share Link
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Add event listeners for the new modal
+    setupShareModalEvents();
+}
+
+function setupShareModalEvents() {
+    const closeShareModal = document.getElementById('closeShareModal');
+    const backToFeedsBtn = document.getElementById('backToFeedsBtn');
+    const copyShareLinkBtn = document.getElementById('copyShareLinkBtn');
+    
+    if (closeShareModal) {
+        closeShareModal.addEventListener('click', closeSharePostModal);
+    }
+    
+    if (backToFeedsBtn) {
+        backToFeedsBtn.addEventListener('click', closeSharePostModal);
+    }
+    
+    if (copyShareLinkBtn) {
+        copyShareLinkBtn.addEventListener('click', copyCurrentShareLink);
+    }
+    
+    // Close when clicking outside modal
+    const shareModal = document.getElementById('sharePostModal');
+    if (shareModal) {
+        shareModal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeSharePostModal();
+            }
+        });
+    }
+}
+
+function showSharedPostModal(postId) {
+    // Create the modal if it doesn't exist
+    createShareModal();
+    
+    const modal = document.getElementById('sharePostModal');
+    if (!modal) return;
+    
+    // Show the modal
+    modal.classList.add('active');
+    
+    // Find the post
+    const post = allPosts.find(p => p.id === postId);
+    const sharedPostContainer = document.getElementById('sharedPostContainer');
+    
+    if (!post || !sharedPostContainer) {
+        sharedPostContainer.innerHTML = `
+            <div class="empty-state" style="text-align: center; padding: 3rem 1rem;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: var(--danger); margin-bottom: 1rem;"></i>
+                <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: var(--text-primary);">Post Not Found</h3>
+                <p style="color: var(--text-secondary);">The shared post could not be found.</p>
+                <button onclick="closeSharePostModal()" class="btn btn-primary" style="margin-top: 1rem;">
+                    Back to Feeds
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    // Create and display the post
+    const postElement = createPostElement(post, post.id);
+    
+    // Remove any existing share button from this post (we'll add our own)
+    const shareBtn = postElement.querySelector('.share-btn');
+    if (shareBtn) shareBtn.remove();
+    
+    // Wrap the post in a container for the modal
+    sharedPostContainer.innerHTML = '';
+    sharedPostContainer.appendChild(postElement);
+    
+    // Update the copy button with current URL
+    const copyShareLinkBtn = document.getElementById('copyShareLinkBtn');
+    if (copyShareLinkBtn) {
+        const shareUrl = generateShareUrl(post.id);
+        copyShareLinkBtn.dataset.shareUrl = shareUrl;
+    }
+    
+    // Scroll the post into view
+    setTimeout(() => {
+        postElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+}
+
+function closeSharePostModal() {
+    const modal = document.getElementById('sharePostModal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+    
+    // Clean URL without refreshing page
+    if (window.history.replaceState) {
+        const newUrl = window.location.pathname;
+        window.history.replaceState(null, '', newUrl);
+    }
+    
+    sharedPostId = null;
+}
+
+function generateShareUrl(postId) {
+    const baseUrl = window.location.origin + window.location.pathname;
+    return `${baseUrl}?share=${postId}`;
+}
+
+function copyCurrentShareLink() {
+    const copyShareLinkBtn = document.getElementById('copyShareLinkBtn');
+    if (!copyShareLinkBtn || !copyShareLinkBtn.dataset.shareUrl) return;
+    
+    const shareUrl = copyShareLinkBtn.dataset.shareUrl;
+    
+    navigator.clipboard.writeText(shareUrl)
+        .then(() => {
+            // Show success feedback
+            const originalText = copyShareLinkBtn.innerHTML;
+            copyShareLinkBtn.innerHTML = '<i class="fas fa-check"></i> Link Copied!';
+            copyShareLinkBtn.classList.add('success');
+            
+            setTimeout(() => {
+                copyShareLinkBtn.innerHTML = originalText;
+                copyShareLinkBtn.classList.remove('success');
+            }, 2000);
+        })
+        .catch(err => {
+            console.error('Failed to copy:', err);
+            alert('Failed to copy link. Please copy it manually.');
+        });
+}
+
+// Add share button to each post
+function addShareButtonToPost(postElement, postId) {
+    // Check if share button already exists
+    if (postElement.querySelector('.share-btn')) return;
+    
+    // Find the post-actions-buttons container
+    const postActions = postElement.querySelector('.post-actions-buttons');
+    if (!postActions) return;
+    
+    // Create share button
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'action-btn share-btn';
+    shareBtn.innerHTML = '<i class="fas fa-share-alt"></i> Share';
+    shareBtn.dataset.postId = postId;
+    
+    // Add click event
+    shareBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        sharePost(postId);
+    });
+    
+    // Insert before the like button
+    const likeBtn = postActions.querySelector('[data-action="like"]');
+    if (likeBtn) {
+        postActions.insertBefore(shareBtn, likeBtn);
+    } else {
+        postActions.appendChild(shareBtn);
+    }
+}
+
+function sharePost(postId) {
+    const post = allPosts.find(p => p.id === postId);
+    if (!post) {
+        alert('Post not found');
+        return;
+    }
+    
+    const shareUrl = generateShareUrl(postId);
+    
+    // Create share options
+    const shareOptions = `
+        <div class="share-options">
+            <h3 style="margin-bottom: 1rem; color: var(--text-primary);">Share Post</h3>
+            
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    Share Link:
+                </label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" readonly value="${shareUrl}" id="shareUrlInput" 
+                           style="flex: 1; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-primary); font-size: 0.9rem;">
+                    <button id="copyShareUrlBtn" class="btn btn-primary" style="white-space: nowrap;">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                </div>
+            </div>
+            
+            <div class="share-platforms" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 1rem;">
+                <button class="share-platform-btn" data-platform="whatsapp">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </button>
+                <button class="share-platform-btn" data-platform="facebook">
+                    <i class="fab fa-facebook"></i> Facebook
+                </button>
+                <button class="share-platform-btn" data-platform="twitter">
+                    <i class="fab fa-twitter"></i> Twitter
+                </button>
+                <button class="share-platform-btn" data-platform="telegram">
+                    <i class="fab fa-telegram"></i> Telegram
+                </button>
+                <button class="share-platform-btn" data-platform="reddit">
+                    <i class="fab fa-reddit"></i> Reddit
+                </button>
+                <button class="share-platform-btn" data-platform="email">
+                    <i class="fas fa-envelope"></i> Email
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Create and show modal
+    showCustomModal('Share Post', shareOptions, () => {
+        // Setup copy button
+        const copyBtn = document.getElementById('copyShareUrlBtn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const input = document.getElementById('shareUrlInput');
+                if (input) {
+                    input.select();
+                    document.execCommand('copy');
+                    
+                    // Show feedback
+                    const originalText = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                    copyBtn.classList.add('success');
+                    
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalText;
+                        copyBtn.classList.remove('success');
+                    }, 2000);
+                }
+            });
+        }
+        
+        // Setup platform buttons
+        document.querySelectorAll('.share-platform-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const platform = this.dataset.platform;
+                shareToPlatform(platform, shareUrl, post);
+            });
+        });
+    });
+}
+
+function showCustomModal(title, content, onOpen = null) {
+    // Remove existing custom modal if any
+    const existingModal = document.getElementById('customModal');
+    if (existingModal) existingModal.remove();
+    
+    const modalHTML = `
+        <div class="modal" id="customModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${title}</h2>
+                    <button class="close-modal" id="closeCustomModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    ${content}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    const modal = document.getElementById('customModal');
+    const closeBtn = document.getElementById('closeCustomModal');
+    
+    if (modal) {
+        modal.classList.add('active');
+    }
+    
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            modal.classList.remove('active');
+            setTimeout(() => modal.remove(), 300);
+        });
+    }
+    
+    // Close when clicking outside
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.classList.remove('active');
+                setTimeout(() => this.remove(), 300);
+            }
+        });
+    }
+    
+    // Call onOpen callback
+    if (onOpen) onOpen();
+}
+function shareToPlatform(platform, url, post) {
+    const postContent = post.content ? post.content.substring(0, 100) + (post.content.length > 100 ? '...' : '') : '';
+    const text = `Check out this post on Meko Network by @${post.username}: ${postContent}`;
+    const encodedUrl = encodeURIComponent(url);
+    const encodedText = encodeURIComponent(text);
+    
+    let shareUrl = '';
+    
+    // Get media URL for thumbnail/preview
+    const mediaUrl = getMediaUrlForSharing(post);
+    const encodedMediaUrl = mediaUrl ? encodeURIComponent(mediaUrl) : '';
+    
+    switch(platform) {
+        case 'whatsapp':
+            // WhatsApp Web API with text only
+            shareUrl = `https://wa.me/?text=${encodedText}%20${encodedUrl}`;
+            break;
+            
+        case 'facebook':
+            // Facebook uses Open Graph meta tags, not URL parameters
+            // We'll share with the URL, and Open Graph will handle the preview
+            shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`;
+            break;
+            
+        case 'x': // Updated from 'twitter' to 'x'
+            // X (Twitter) supports text + URL, but not direct media in share dialog
+            // Cards are handled via Twitter Card meta tags
+            const hashtags = post.topic ? `&hashtags=${encodeURIComponent(post.topic)}` : '';
+            shareUrl = `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}${hashtags}`;
+            break;
+            
+        case 'telegram':
+            // Telegram supports text + URL
+            shareUrl = `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`;
+            break;
+            
+        case 'reddit':
+            // Reddit submission with title
+            shareUrl = `https://reddit.com/submit?url=${encodedUrl}&title=${encodedText}`;
+            break;
+            
+        case 'pinterest':
+            // Pinterest supports image URLs
+            if (mediaUrl && (post.image || post.video)) {
+                const description = encodeURIComponent(`${text} - Shared from Meko Network`);
+                shareUrl = `https://pinterest.com/pin/create/button/?url=${encodedUrl}&media=${encodedMediaUrl}&description=${description}`;
+            } else {
+                shareUrl = `https://pinterest.com/pin/create/button/?url=${encodedUrl}&description=${encodedText}`;
+            }
+            break;
+            
+        case 'tumblr':
+            // Tumblr supports various post types
+            if (post.image) {
+                shareUrl = `https://www.tumblr.com/widgets/share/tool?posttype=photo&content=${encodedMediaUrl}&caption=${encodedText}&canonicalUrl=${encodedUrl}`;
+            } else if (post.video) {
+                shareUrl = `https://www.tumblr.com/widgets/share/tool?posttype=video&content=${encodedMediaUrl}&caption=${encodedText}&canonicalUrl=${encodedUrl}`;
+            } else {
+                shareUrl = `https://www.tumblr.com/widgets/share/tool?posttype=link&content=${encodedUrl}&caption=${encodedText}`;
+            }
+            break;
+            
+        case 'email':
+            const subject = encodeURIComponent(`Check out this post on Meko Network`);
+            let emailBody = `${text}%0A%0A${encodedUrl}%0A%0A`;
+            
+            // Add media preview in email body if available
+            if (mediaUrl) {
+                if (post.image) {
+                    emailBody += `📷 View image: ${mediaUrl}%0A%0A`;
+                } else if (post.video) {
+                    emailBody += `🎬 Watch video: ${mediaUrl}%0A%0A`;
+                }
+            }
+            
+            emailBody += `Shared from Meko Network`;
+            shareUrl = `mailto:?subject=${subject}&body=${emailBody}`;
+            break;
+            
+        case 'copy':
+            // Copy to clipboard with enhanced text
+            let copyText = `${text}\n\n`;
+            
+            if (mediaUrl) {
+                if (post.image) {
+                    copyText += `Image: ${mediaUrl}\n`;
+                } else if (post.video) {
+                    copyText += `Video: ${mediaUrl}\n`;
+                }
+            }
+            
+            copyText += `\nView post: ${url}\n\nShared from Meko Network`;
+            
+            navigator.clipboard.writeText(copyText)
+                .then(() => {
+                    // Show success message
+                    const copyBtn = document.querySelector('.share-platform-btn[data-platform="copy"]');
+                    if (copyBtn) {
+                        const originalText = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                        copyBtn.classList.add('success');
+                        
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalText;
+                            copyBtn.classList.remove('success');
+                        }, 2000);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = copyText;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    
+                    alert('Link copied to clipboard!');
+                });
+            return; // Don't open window for copy
+            
+        default:
+            return;
+    }
+    
+    if (shareUrl) {
+        window.open(shareUrl, '_blank', 'noopener,noreferrer,width=600,height=400');
+    }
+}
+
+function getMediaUrlForSharing(post) {
+    // Return the direct media URL for sharing
+    if (post.image) {
+        return post.image;
+    } else if (post.video) {
+        return post.video;
+    } else if (post.iframe) {
+        // For YouTube/embedded videos, extract thumbnail
+        return getYouTubeThumbnail(post.iframe);
+    }
+    return null;
+}
+
+function getYouTubeThumbnail(url) {
+    if (!url) return null;
+    
+    try {
+        let videoId = '';
+        
+        // Extract video ID from various YouTube URL formats
+        if (url.includes('youtube.com/embed/')) {
+            videoId = url.split('youtube.com/embed/')[1].split('?')[0];
+        } else if (url.includes('youtu.be/')) {
+            videoId = url.split('youtu.be/')[1].split('?')[0];
+        } else if (url.includes('youtube.com/watch?v=')) {
+            videoId = url.split('v=')[1].split('&')[0];
+        } else if (url.includes('youtube.com/shorts/')) {
+            videoId = url.split('shorts/')[1].split('?')[0];
+        }
+        
+        if (videoId) {
+            // Return max resolution thumbnail
+            return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        }
+    } catch (error) {
+        console.error('Error extracting YouTube thumbnail:', error);
+    }
+    
+    return null;
+}
+
+function updateShareModalHTML(shareUrl, post) {
+    const mediaUrl = getMediaUrlForSharing(post);
+    const hasMedia = !!mediaUrl;
+    
+    return `
+        <div class="share-options">
+            <h3 style="margin-bottom: 1rem; color: var(--text-primary);">Share Post</h3>
+            
+            ${hasMedia ? `
+            <div class="share-preview" style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+                <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                    ${post.image ? `
+                        <img src="${post.image}" alt="Post image" style="width: 80px; height: 80px; object-fit: cover; border-radius: 0.5rem;">
+                    ` : post.video ? `
+                        <div style="width: 80px; height: 80px; background: var(--bg-tertiary); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-video" style="font-size: 1.5rem; color: var(--text-secondary);"></i>
+                        </div>
+                    ` : post.iframe ? `
+                        <div style="width: 80px; height: 80px; background: var(--bg-tertiary); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center;">
+                            <i class="fab fa-youtube" style="font-size: 1.5rem; color: #FF0000;"></i>
+                        </div>
+                    ` : ''}
+                    
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500; color: var(--text-primary); margin-bottom: 0.25rem;">
+                            ${post.content ? post.content.substring(0, 80) + (post.content.length > 80 ? '...' : '') : 'Shared post'}
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            by @${post.username}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+            
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    Share Link:
+                </label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" readonly value="${shareUrl}" id="shareUrlInput" 
+                           style="flex: 1; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-primary); font-size: 0.9rem;">
+                    <button id="copyShareUrlBtn" class="btn btn-primary" style="white-space: nowrap;">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                </div>
+            </div>
+            
+            <div class="share-platforms" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-top: 1rem;">
+                <button class="share-platform-btn" data-platform="copy" title="Copy to clipboard">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <button class="share-platform-btn" data-platform="whatsapp" title="Share on WhatsApp">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </button>
+                <button class="share-platform-btn" data-platform="facebook" title="Share on Facebook">
+                    <i class="fab fa-facebook"></i> Facebook
+                </button>
+                <button class="share-platform-btn" data-platform="x" title="Share on X (Twitter)">
+                    <i class="fab fa-x-twitter"></i> X
+                </button>
+                <button class="share-platform-btn" data-platform="telegram" title="Share on Telegram">
+                    <i class="fab fa-telegram"></i> Telegram
+                </button>
+                <button class="share-platform-btn" data-platform="reddit" title="Share on Reddit">
+                    <i class="fab fa-reddit"></i> Reddit
+                </button>
+                ${hasMedia ? `
+                <button class="share-platform-btn" data-platform="pinterest" title="Share on Pinterest">
+                    <i class="fab fa-pinterest"></i> Pinterest
+                </button>
+                ` : ''}
+                <button class="share-platform-btn" data-platform="tumblr" title="Share on Tumblr">
+                    <i class="fab fa-tumblr"></i> Tumblr
+                </button>
+                <button class="share-platform-btn" data-platform="email" title="Share via Email">
+                    <i class="fas fa-envelope"></i> Email
+                </button>
+            </div>
+            
+            <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+                <i class="fas fa-info-circle" style="margin-right: 0.5rem;"></i>
+                ${hasMedia ? 'Media preview will appear on supported platforms' : 'Text-only share on most platforms'}
+            </div>
+        </div>
+    `;
+}
+function sharePost(postId) {
+    const post = allPosts.find(p => p.id === postId);
+    if (!post) {
+        alert('Post not found');
+        return;
+    }
+    
+    const shareUrl = generateShareUrl(postId);
+    const modalContent = updateShareModalHTML(shareUrl, post);
+    
+    showCustomModal('Share Post', modalContent, () => {
+        // Setup copy button
+        const copyBtn = document.getElementById('copyShareUrlBtn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const input = document.getElementById('shareUrlInput');
+                if (input) {
+                    input.select();
+                    navigator.clipboard.writeText(input.value)
+                        .then(() => {
+                            const originalText = copyBtn.innerHTML;
+                            copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                            copyBtn.classList.add('success');
+                            
+                            setTimeout(() => {
+                                copyBtn.innerHTML = originalText;
+                                copyBtn.classList.remove('success');
+                            }, 2000);
+                        })
+                        .catch(err => {
+                            // Fallback for older browsers
+                            document.execCommand('copy');
+                            alert('Link copied to clipboard!');
+                        });
+                }
+            });
+        }
+        
+        // Setup platform buttons
+        document.querySelectorAll('.share-platform-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const platform = this.dataset.platform;
+                shareToPlatform(platform, shareUrl, post);
+                
+                // Close modal after sharing (except for copy)
+                if (platform !== 'copy') {
+                    const modal = document.getElementById('customModal');
+                    if (modal) {
+                        setTimeout(() => {
+                            modal.classList.remove('active');
+                            setTimeout(() => modal.remove(), 300);
+                        }, 500);
+                    }
+                }
+            });
+        });
+    });
+}
 function initializePosts() {
     if (!DATABASEPOSTS || DATABASEPOSTS.length === 0) {
         console.log('No posts data available for initialization');
@@ -496,7 +1155,7 @@ function shuffleArray(array, seed) {
 }
 
 function loadPosts() {
-    if (!elements.postsFeed) return;
+if (!elements.postsFeed) return;
     
     if (allPosts.length === 0) {
         console.log('No posts available to load');
@@ -524,8 +1183,12 @@ function loadPosts() {
         const postElement = createPostElement(post, post.id);
         elements.postsFeed.appendChild(postElement);
         displayedPosts.add(post.id);
+        
+        // Add share button to the post
+        addShareButtonToPost(postElement, post.id);
     });
     
+
     currentPage++;
     
     if (elements.loadMoreBtn) {
@@ -534,6 +1197,7 @@ function loadPosts() {
         elements.loadMoreBtn.textContent = remainingPosts === 0 ? 'No more posts' : `Reach me to Load More`;
     }
 }
+
 
 function loadMorePosts() {
     loadPosts();
@@ -686,11 +1350,15 @@ function createPostElement(post, postId) {
                 }  
             </div>  
             
-            <div class="post-actions-buttons">  
-                <button class="action-btn ${currentUser?.likedPosts?.has(postId) ? 'liked' : ''}" data-action="like" data-post-id="${postId}">  
-                    <i class="fas fa-heart"></i> Like  
-                </button>  
-            </div>  
+<div class="post-actions-buttons">  
+
+        <button class="action-btn ${currentUser?.likedPosts?.has(postId) ? 'liked' : ''}" data-action="like" data-post-id="${postId}">  
+            <i class="fas fa-heart"></i> Like  
+        </button>  
+        <button class="action-btn share-btn" data-action="share" data-post-id="${postId}">  
+            <i class="fas fa-share-alt"></i> Share  
+        </button>  
+    </div>  
         `}  
     `;
     
@@ -782,7 +1450,18 @@ adContainer.innerHTML = `
             });
         });
     }
-    
+  if (!isAnyAd || adType === 'CREATOR_AD' || adType === 'TOPIC_AD') {
+        const shareBtn = postElement.querySelector('.share-btn');
+        if (shareBtn) {
+            shareBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                sharePost(postId);
+            });
+        } else {
+            // If not in HTML, add it programmatically
+            setTimeout(() => addShareButtonToPost(postElement, postId), 100);
+        }
+    }
     return postElement;
 }
 // Helper function to convert YouTube URLs to embed format
@@ -908,7 +1587,7 @@ function getMentionsForUser(username) {
 
 function parseCustomDate(dateString) {
     try {
-        console.log('Parsing date:', dateString);
+        
         
         const months = {
             'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
@@ -2152,26 +2831,7 @@ function setupEventListeners() {
     }
     
     // Post creation
-    if (elements.createPostBtn) {
-        elements.createPostBtn.addEventListener('click', showPostModal);
-    }
-    
-    if (elements.submitPostBtn) {
-        elements.submitPostBtn.addEventListener('click', createPost);
-    }
-    
-    if (elements.submitNewPostBtn) {
-        elements.submitNewPostBtn.addEventListener('click', createNewPost);
-    }
-    
-    if (elements.createPostMobile) {
-        elements.createPostMobile.addEventListener('click', showPostModal);
-    }
-    
-    if (elements.bottomCreatePostBtn) {
-        elements.bottomCreatePostBtn.addEventListener('click', showPostModal);
-    }
-    
+
     // Modal controls
     if (elements.closeProfileModal) {
         elements.closeProfileModal.addEventListener('click', () => {
@@ -2308,13 +2968,23 @@ function setupEventListeners() {
             document.querySelector('.search-bar')?.classList.remove('active');
         }
     });
+document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            // ... existing escape handlers ...
+            
+            const shareModal = document.getElementById('sharePostModal');
+            if (shareModal && shareModal.classList.contains('active')) {
+                closeSharePostModal();
+            }
+        }
+    });
 }
 
 function processPosts(postsArray) {
     console.log('Processing posts data...');
 
     if (!Array.isArray(postsArray)) {
-        console.error('processPosts expected array, got:', postsArray);
+        
         postsArray = [];
     }
 
@@ -2328,7 +2998,7 @@ function processPosts(postsArray) {
         // Check required fields
         const hasRequired = post.name && post.username && post.datePost;
         if (!hasRequired) {
-            console.log('Skipping post missing required fields:', post);
+            
             return false;
         }
         
@@ -2341,15 +3011,14 @@ function processPosts(postsArray) {
             }
             return isValidDate;
         } catch {
-            console.log('Skipping post with date parsing error:', post.datePost);
+            
             return false;
         }
     });
 
-    console.log(`Valid posts: ${validPosts.length}/${postsArray.length}`);
-
+    
     if (validPosts.length === 0) {
-        console.warn('No valid posts found!');
+        
         renderEmptyState();
         return;
     }
@@ -2364,9 +3033,9 @@ function processPosts(postsArray) {
     allPosts = [];
 
     // Debug log first few posts
-    console.log('First 3 posts:');
+    ;
     DATABASEPOSTS.slice(0, 3).forEach((p, i) => {
-        console.log(`${i + 1}. ${p.name} (@${p.username}) — ${p.datePost} — Likes: ${p.likes}`);
+        
     });
 
     // Initialize everything
@@ -2390,7 +3059,7 @@ const JSON_URL = "database_827_383_294_103_759_927_953.json";
 // ==================== JSON STRUCTURE EXTRACTOR ====================
 function extractPostsFromJSON(data) {
     if (!data) {
-        console.error("No data received");
+        
         return [];
     }
 
@@ -2398,14 +3067,12 @@ function extractPostsFromJSON(data) {
     
     // If data is already the array (which it should be)
     if (Array.isArray(data)) {
-        console.log("Successfully extracted array of posts");
-        console.log("Number of posts:", data.length);
+        
         return data;
     }
     
     // If data is not an array, log what we got
-    console.error("Expected array but got:", typeof data);
-    console.error("Data structure:", data);
+    
     
     return [];
 }
@@ -2532,6 +3199,7 @@ function renderErrorState(message) {
 }
 
 // ==================== INITIALIZE APP ====================
+
 function initializeApp() {
     console.log("Initializing app...");
     
@@ -2545,6 +3213,9 @@ function initializeApp() {
     // Set up event listeners
     setupEventListeners();
     setupTheme();
+    
+    // Check for shared post in URL FIRST
+    processUrlParameters();
     
     // Then fetch posts
     fetchPosts();
