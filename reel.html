@@ -795,500 +795,411 @@ height: calc(100vh - 48px);
     </div>
 
     <script>
-        // ==================== CONFIGURATION ====================
-        const JSON_URL = "database_827_383_294_103_759_927_953.json";
-        let DATABASEPOSTS = [];
-        let VIDEO_POSTS = [];
-        let currentVideoIndex = 0;
-        let currentUser = null;
-        let isLoading = false;
+   // ==================== CONFIGURATION ====================
+const JSON_URL = "database_827_383_294_103_759_927_953.json";
+let DATABASEPOSTS = [];
+let VIDEO_POSTS = [];
+let currentVideoIndex = 0;
+let currentUser = null;
+let isLoading = false;
 
-        // ==================== DOM ELEMENTS ====================
-        const elements = {
-            reelsContainer: document.getElementById('reelsContainer'),
-            loadingIndicator: document.getElementById('loadingIndicator')
-        };
+// ==================== DOM ELEMENTS ====================
+const elements = {
+    reelsContainer: document.getElementById('reelsContainer'),
+    loadingIndicator: document.getElementById('loadingIndicator')
+};
 
-        // ==================== INITIALIZATION ====================
-        function initApp() {
-            loadCurrentUser();
-            fetchPosts();
-            setupScrollObserver();
+// ==================== SECURE VIDEO TOKEN ====================
+function generateSecureVideoToken(videoUrl, postId) {
+    const payload = JSON.stringify({
+        src: videoUrl,
+        pid: postId,
+        exp: Date.now() + (1000 * 60 * 10) // 10 min expiry
+    });
+    return btoa(payload.split('').reverse().join(''));
+}
+
+function decodeSecureVideoToken(token) {
+    try {
+        const decoded = atob(token).split('').reverse().join('');
+        const data = JSON.parse(decoded);
+        if (Date.now() > data.exp) return null;
+        return data.src;
+    } catch {
+        return null;
+    }
+}
+
+function hydrateSecureVideo(video) {
+    if (video.dataset.loaded) return;
+    const url = decodeSecureVideoToken(video.dataset.src);
+    if (url) {
+        video.src = url;
+        video.load();
+        video.dataset.loaded = "1";
+    }
+}
+
+// ==================== INITIALIZATION ====================
+function initApp() {
+    loadCurrentUser();
+    fetchPosts();
+    setupScrollObserver();
+}
+
+function loadCurrentUser() {
+    const savedUser = localStorage.getItem('meko-current-user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            if (!currentUser.likedPosts) currentUser.likedPosts = [];
+        } catch {
+            currentUser = null;
+        }
+    }
+}
+
+// ==================== FETCH POSTS ====================
+async function fetchPosts() {
+    if (isLoading) return;
+    showLoading(true);
+    isLoading = true;
+
+    try {
+        const response = await fetch(JSON_URL + "?v=" + Date.now(), {
+            cache: "no-store",
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let cleanedText = (await response.text()).trim();
+
+        // Fix incomplete JSON
+        if (!cleanedText.endsWith('}') && !cleanedText.endsWith(']')) {
+            const lastBrace = cleanedText.lastIndexOf('}');
+            const lastBracket = cleanedText.lastIndexOf(']');
+            const cutIndex = Math.max(lastBrace, lastBracket);
+            if (cutIndex > 0) cleanedText = cleanedText.substring(0, cutIndex + 1);
         }
 
-        function loadCurrentUser() {
-            const savedUser = localStorage.getItem('meko-current-user');
-            if (savedUser) {
-                try {
-                    currentUser = JSON.parse(savedUser);
-                    if (!currentUser.likedPosts) currentUser.likedPosts = [];
-                } catch (e) {
-                    currentUser = null;
-                }
+        const data = JSON.parse(cleanedText);
+        const postsArray = Array.isArray(data) ? data : [];
+
+        DATABASEPOSTS = postsArray.filter(post => post && post.name && post.username && post.datePost);
+
+        DATABASEPOSTS.forEach((post, index) => {
+            const recoNumber = DATABASEPOSTS.length - index;
+            post.id = `meko-${post.username.toLowerCase()}-reco${recoNumber}`;
+            post.recoNumber = recoNumber;
+        });
+
+        VIDEO_POSTS = DATABASEPOSTS.filter(post => {
+            if (post.video) return true;
+            if (post.iframe && isYouTubeUrl(post.iframe)) {
+                post.youtubeEmbedUrl = convertToEmbedUrl(post.iframe);
+                return true;
             }
+            return false;
+        });
+
+        if (VIDEO_POSTS.length > 0) {
+            VIDEO_POSTS.sort(() => Math.random() - 0.5);
+            renderReels();
+        } else {
+            showNoVideosMessage();
         }
 
-        // ==================== FETCH POSTS ====================
-        async function fetchPosts() {
-            if (isLoading) return;
-            
-            showLoading(true);
-            isLoading = true;
-            
-            try {
-                const response = await fetch(JSON_URL + "?v=" + Date.now(), {
-                    cache: "no-store",
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const text = await response.text();
-                let cleanedText = text.trim();
-                
-                // Fix incomplete JSON
-                if (!cleanedText.endsWith('}') && !cleanedText.endsWith(']')) {
-                    const lastBrace = cleanedText.lastIndexOf('}');
-                    const lastBracket = cleanedText.lastIndexOf(']');
-                    const cutIndex = Math.max(lastBrace, lastBracket);
-                    if (cutIndex > 0) cleanedText = cleanedText.substring(0, cutIndex + 1);
-                }
-                
-                const data = JSON.parse(cleanedText);
-                const postsArray = Array.isArray(data) ? data : [];
-                
-                DATABASEPOSTS = postsArray.filter(post => 
-                    post && post.name && post.username && post.datePost
-                );
-                
-                // Generate IDs
-                DATABASEPOSTS.forEach((post, index) => {
-                    const recoNumber = DATABASEPOSTS.length - index;
-                    post.id = `meko-${post.username.toLowerCase()}-reco${recoNumber}`;
-                    post.recoNumber = recoNumber;
-                });
-                
-                // Filter video posts
-                VIDEO_POSTS = DATABASEPOSTS.filter(post => {
-                    if (post.video) return true;
-                    if (post.iframe && isYouTubeUrl(post.iframe)) {
-                        post.youtubeEmbedUrl = convertToEmbedUrl(post.iframe);
-                        return true;
-                    }
-                    return false;
-                });
-                
-                if (VIDEO_POSTS.length > 0) {
-                    // Shuffle videos
-                    VIDEO_POSTS.sort(() => Math.random() - 0.5);
-                    renderReels();
-                } else {
-                    showNoVideosMessage();
-                }
-                
-            } catch (error) {
-                console.error('Fetch error:', error);
-                showErrorState();
-            } finally {
-                showLoading(false);
-                isLoading = false;
-            }
-        }
+    } catch (error) {
+        console.error('Fetch error:', error);
+        showErrorState();
+    } finally {
+        showLoading(false);
+        isLoading = false;
+    }
+}
 
-        function isYouTubeUrl(url) {
-            if (!url) return false;
-            return url.includes('youtube.com') || url.includes('youtu.be');
-        }
+function isYouTubeUrl(url) {
+    return url && (url.includes('youtube.com') || url.includes('youtu.be'));
+}
 
-        function convertToEmbedUrl(url) {
-            if (!url) return null;
-            
-            try {
-                if (url.includes('/shorts/')) {
-                    const videoId = url.split('/shorts/')[1].split('?')[0];
-                    return `https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1&rel=0&modestbranding=1`;
-                }
-                
-                if (url.includes('youtu.be/')) {
-                    const videoId = url.split('youtu.be/')[1].split('?')[0];
-                    return `https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1&rel=0&modestbranding=1`;
-                }
-                
-                if (url.includes('youtube.com/watch')) {
-                    const urlObj = new URL(url);
-                    const videoId = urlObj.searchParams.get('v');
-                    if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1&rel=0&modestbranding=1`;
-                }
-                
-                if (url.includes('youtube.com/embed/')) {
-                    return url.split('?')[0] + '?autoplay=0&controls=1&rel=0&modestbranding=1';
-                }
-                
-                return null;
-            } catch (error) {
-                console.error('Error converting URL:', error);
-                return null;
-            }
+function convertToEmbedUrl(url) {
+    if (!url) return null;
+    try {
+        if (url.includes('/shorts/')) {
+            const id = url.split('/shorts/')[1].split('?')[0];
+            return `https://www.youtube.com/embed/${id}?autoplay=0&controls=1&rel=0&modestbranding=1`;
         }
-
-        // ==================== RENDER REELS ====================
-        function renderReels() {
-            elements.reelsContainer.innerHTML = '';
-            
-            // Create initial batch of reels
-            const initialBatch = VIDEO_POSTS.slice(0, Math.min(10, VIDEO_POSTS.length));
-            
-            initialBatch.forEach((post, index) => {
-                const reelElement = createReelElement(post, index);
-                elements.reelsContainer.appendChild(reelElement);
-            });
-            
-            // Setup intersection observer after render
-            setTimeout(() => {
-                setupVideoControl();
-            }, 100);
+        if (url.includes('youtu.be/')) {
+            const id = url.split('youtu.be/')[1].split('?')[0];
+            return `https://www.youtube.com/embed/${id}?autoplay=0&controls=1&rel=0&modestbranding=1`;
         }
+        if (url.includes('youtube.com/watch')) {
+            const id = new URL(url).searchParams.get('v');
+            return id ? `https://www.youtube.com/embed/${id}?autoplay=0&controls=1&rel=0&modestbranding=1` : null;
+        }
+        if (url.includes('youtube.com/embed/')) {
+            return url.split('?')[0] + '?autoplay=0&controls=1&rel=0&modestbranding=1';
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
 
-        function createReelElement(post, index) {
-            const reel = document.createElement('div');
-            reel.className = 'reel';
-            reel.dataset.index = index;
-            reel.dataset.postId = post.id;
-            
-            const isYouTube = post.iframe && isYouTubeUrl(post.iframe);
-            const videoUrl = isYouTube ? (post.youtubeEmbedUrl || convertToEmbedUrl(post.iframe)) : post.video;
-            
-            const liked = currentUser?.likedPosts?.includes?.(post.id) || false;
-            
-            reel.innerHTML = `
-                <div class="video-wrapper">
-                    ${isYouTube ? `
-                        <iframe 
-                            class="reel-video youtube-video"
-                            src="${videoUrl}"
-                            frameborder="0"
-                            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowfullscreen
-                        ></iframe>
-                    ` : `
-                        <video 
-                            class="reel-video"
-                            src="${videoUrl}"
-                            loop
-                            playsinline
-                            preload="metadata"
-                            webkit-playsinline
-                        ></video>
-                    `}
+// ==================== RENDER REELS ====================
+function renderReels() {
+    elements.reelsContainer.innerHTML = '';
+    const initialBatch = VIDEO_POSTS.slice(0, Math.min(10, VIDEO_POSTS.length));
+    initialBatch.forEach((post, index) => {
+        elements.reelsContainer.appendChild(createReelElement(post, index));
+    });
+    setTimeout(() => setupVideoControl(), 100);
+}
+
+function createReelElement(post, index) {
+    const reel = document.createElement('div');
+    reel.className = 'reel';
+    reel.dataset.index = index;
+    reel.dataset.postId = post.id;
+
+    const isYouTube = post.iframe && isYouTubeUrl(post.iframe);
+    const videoUrl = isYouTube ? (post.youtubeEmbedUrl || convertToEmbedUrl(post.iframe)) : post.video;
+    const secureToken = generateSecureVideoToken(videoUrl, post.id);
+
+    const liked = currentUser?.likedPosts?.includes?.(post.id) || false;
+
+    reel.innerHTML = `
+        <div class="video-wrapper">
+            ${isYouTube ? `<iframe class="reel-video youtube-video" src="${videoUrl}" frameborder="0" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>` : `
+            <video 
+                class="reel-video secure-video"
+                data-src="${secureToken}"
+                loop
+                playsinline
+                preload="metadata"
+                webkit-playsinline
+                controlsList="nodownload noplaybackrate"
+                oncontextmenu="return false;"
+            ></video>`}
+        </div>
+
+        <div class="video-overlay">
+            <div class="top-section">
+                <button class="back-btn" onclick="window.location.href='index.html'">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+            </div>
+
+            <div class="bottom-section">
+                <div class="video-info">
+                    <div class="username">@${post.username}</div>
+                    ${post.content ? `<div class="video-caption">${post.content}</div>` : ''}
+                    ${post.topic ? `<div class="topic-tag">#${post.topic}</div>` : ''}
                 </div>
-                
-                <div class="video-overlay">
-                    <div class="top-section">
-                        <button class="back-btn" onclick="window.location.href='index.html'">
-                            <i class="fas fa-arrow-left"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="bottom-section">
-                        <div class="video-info">
-                            <div class="username">@${post.username}</div>
-                            ${post.content ? `<div class="video-caption">${post.content}</div>` : ''}
-                            ${post.topic ? `<div class="topic-tag">#${post.topic}</div>` : ''}
-                        </div>
-                        
-                        <div class="reel-actions">
-                            <div class="avatar-btn">
-                                       <img id="currentUserAvatar" src="https://ui-avatars.com/api/?name=${post.username}&background=1e3a8a&color=fff" alt="${post.username}">
-                            </div>
-                            
-                            <button class="action-btn like-btn ${liked ? 'liked' : ''}" data-post-id="${post.id}" data-index="${index}">
-                                <div class="action-icon">
-                                    <i class="${liked ? 'fas' : 'far'} fa-heart"></i>
-                                </div>
-                                <span class="action-count">${formatCount(post.likes || 0)}</span>
-                            </button>
-                            
 
-                            
-                            <button class="action-btn share-btn" data-post-id="${post.id}">
-                                <div class="action-icon">
-                                    <i class="fas fa-share"></i>
-                                </div>
-                                <span class="action-count">Share</span>
-                            </button>
-                        </div>
+                <div class="reel-actions">
+                    <div class="avatar-btn">
+                        <img id="currentUserAvatar" src="https://ui-avatars.com/api/?name=${post.username}&background=1e3a8a&color=fff" alt="${post.username}">
                     </div>
+                    <button class="action-btn like-btn ${liked ? 'liked' : ''}" data-post-id="${post.id}" data-index="${index}">
+                        <div class="action-icon"><i class="${liked ? 'fas' : 'far'} fa-heart"></i></div>
+                        <span class="action-count">${formatCount(post.likes || 0)}</span>
+                    </button>
+                    <button class="action-btn share-btn" data-post-id="${post.id}">
+                        <div class="action-icon"><i class="fas fa-share"></i></div>
+                        <span class="action-count">Share</span>
+                    </button>
                 </div>
-            `;
-            
-            // Setup click events
-            setTimeout(() => {
-                setupReelEvents(reel, post, index);
-            }, 0);
-            
-            return reel;
-        }
+            </div>
+        </div>
+    `;
 
-        function setupReelEvents(reel, post, index) {
-            const video = reel.querySelector('.reel-video');
-            const likeBtn = reel.querySelector('.like-btn');
-            const shareBtn = reel.querySelector('.share-btn');
-            
-            // Like button
-            if (likeBtn) {
-                likeBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    handleLike(post.id, likeBtn);
-                });
-            }
-            
-            // Share button
-            if (shareBtn) {
-                shareBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    shareReel(post.id);
-                });
-            }
-            
-            // Double tap to like (for non-YouTube videos)
-            if (video && !video.classList.contains('youtube-video')) {
-                let lastTap = 0;
-                video.addEventListener('click', (e) => {
-                    const currentTime = new Date().getTime();
-                    const tapLength = currentTime - lastTap;
-                    
-                    if (tapLength < 300 && tapLength > 0) {
-                        // Double tap
-                        if (likeBtn) {
-                            handleLike(post.id, likeBtn);
-                            showDoubleTapHeart(reel);
-                        }
-                    }
-                    
-                    lastTap = currentTime;
-                });
-            }
-        }
+    setTimeout(() => setupReelEvents(reel, post, index), 0);
+    return reel;
+}
 
-        // ==================== VIDEO CONTROL ====================
-        function setupVideoControl() {
-            const options = {
-                root: elements.reelsContainer,
-                threshold: 0.75,
-                rootMargin: '0px'
-            };
-            
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    const video = entry.target.querySelector('.reel-video');
-                    
-                    if (!video || video.classList.contains('youtube-video')) return;
-                    
-                    if (entry.isIntersecting) {
-                        // Video is in view - play it
-                        if (video.paused) {
-                            const playPromise = video.play();
-                            if (playPromise !== undefined) {
-                                playPromise.catch(error => {
-                                    console.log('Play prevented:', error);
-                                });
-                            }
-                        }
-                    } else {
-                        // Video is out of view - pause it
-                        if (!video.paused) {
-                            video.pause();
-                        }
-                    }
-                });
-            }, options);
-            
-            // Observe all reels
-            document.querySelectorAll('.reel').forEach(reel => {
-                observer.observe(reel);
-            });
-        }
+// ==================== REEL EVENTS ====================
+function setupReelEvents(reel, post, index) {
+    const video = reel.querySelector('.reel-video');
+    const likeBtn = reel.querySelector('.like-btn');
+    const shareBtn = reel.querySelector('.share-btn');
 
-        function setupScrollObserver() {
-            let lastScrollTop = 0;
-            let scrollTimeout;
-            
-            elements.reelsContainer.addEventListener('scroll', () => {
-                clearTimeout(scrollTimeout);
-                
-                scrollTimeout = setTimeout(() => {
-                    const scrollTop = elements.reelsContainer.scrollTop;
-                    const scrollHeight = elements.reelsContainer.scrollHeight;
-                    const clientHeight = elements.reelsContainer.clientHeight;
-                    
-                    // Check if near bottom (within 2 screens)
-                    if (scrollHeight - scrollTop - clientHeight < clientHeight * 2) {
-                        addMoreReels();
-                    }
-                    
-                    lastScrollTop = scrollTop;
-                }, 150);
-            });
-        }
+    // Like
+    likeBtn?.addEventListener('click', e => {
+        e.stopPropagation();
+        handleLike(post.id, likeBtn);
+    });
 
-        function addMoreReels() {
-            const currentReelCount = document.querySelectorAll('.reel').length;
-            
-            // Shuffle and add 5 more videos
-            const nextVideos = [];
-            for (let i = 0; i < 5; i++) {
-                const randomPost = VIDEO_POSTS[Math.floor(Math.random() * VIDEO_POSTS.length)];
-                nextVideos.push(randomPost);
-            }
-            
-            nextVideos.forEach((post, i) => {
-                const newIndex = currentReelCount + i;
-                const reelElement = createReelElement(post, newIndex);
-                elements.reelsContainer.appendChild(reelElement);
-            });
-            
-            // Re-setup observer for new videos
-            setTimeout(() => {
-                setupVideoControl();
-            }, 100);
-        }
+    // Share
+    shareBtn?.addEventListener('click', e => {
+        e.stopPropagation();
+        shareReel(post.id);
+    });
 
-        // ==================== INTERACTIONS ====================
-        function handleLike(postId, button) {
-            if (!currentUser) {
-                alert('Please login to like videos!');
-                return;
-            }
-            
-            const post = VIDEO_POSTS.find(p => p.id === postId);
-            if (!post) return;
-            
-            const icon = button.querySelector('i');
-            const countSpan = button.querySelector('.action-count');
-            
-            const isLiked = currentUser.likedPosts.includes(postId);
-            
-            if (isLiked) {
-                // Unlike
-                currentUser.likedPosts = currentUser.likedPosts.filter(id => id !== postId);
-                icon.className = 'far fa-heart';
-                button.classList.remove('liked');
-                post.likes = Math.max(0, (post.likes || 1) - 1);
+    // Double tap to like
+    if (video && !video.classList.contains('youtube-video')) {
+        let lastTap = 0;
+        video.addEventListener('click', e => {
+            const now = Date.now();
+            const tapLength = now - lastTap;
+
+            if (tapLength < 300 && tapLength > 0) {
+                handleLike(post.id, likeBtn);
+                showDoubleTapHeart(reel);
             } else {
-                // Like
-                currentUser.likedPosts.push(postId);
-                icon.className = 'fas fa-heart';
-                button.classList.add('liked');
-                post.likes = (post.likes || 0) + 1;
+                // Single tap toggle pause/play
+                if (!video.paused) video.pause();
+                else video.play().catch(() => {});
             }
-            
-            countSpan.textContent = formatCount(post.likes);
-            saveUserData();
-        }
+            lastTap = now;
+        });
+    }
+}
 
-        function showDoubleTapHeart(reel) {
-            const heart = document.createElement('div');
-            heart.className = 'double-tap-heart';
-            heart.innerHTML = '<i class="fas fa-heart"></i>';
-            reel.appendChild(heart);
-            
-            setTimeout(() => heart.remove(), 800);
-        }
+// ==================== VIDEO CONTROL ====================
+function setupVideoControl() {
+    const options = { root: elements.reelsContainer, threshold: 0.75, rootMargin: '0px' };
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            const video = entry.target.querySelector('.reel-video');
+            if (!video || video.classList.contains('youtube-video')) return;
 
-        async function shareReel(postId) {
-            const post = VIDEO_POSTS.find(p => p.id === postId);
-            if (!post) return;
-70
-            const shareUrl = `https://penutcreation.github.io/MEKO/?share=${postId}`;
-            const shareText = `Check out this video on Meko Reels!`;
-            
-            if (navigator.share) {
-                try {
-                    await navigator.share({
-                        title: 'Meko Reels',
-                        text: shareText,
-                        url: shareUrl
-                    });
-                    return;
-                } catch (err) {
-                    console.log('Share cancelled');
-                }
-            }
-            
-            try {
-                await navigator.clipboard.writeText(shareUrl);
-                alert('Link copied to clipboard!');
-            } catch (err) {
-                prompt('Copy this link:', shareUrl);
-            }
-        }
-
-        // ==================== HELPERS ====================
-        function formatCount(num) {
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toString();
-        }
-
-        function saveUserData() {
-            if (currentUser) {
-                localStorage.setItem('meko-current-user', JSON.stringify(currentUser));
-            }
-        }
-
-        function showLoading(show) {
-            elements.loadingIndicator.style.display = show ? 'block' : 'none';
-        }
-
-        function showNoVideosMessage() {
-            elements.reelsContainer.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-video-slash"></i>
-                    <h3>No Videos Found</h3>
-                    <p>There are no video posts available yet. Check back later!</p>
-                    <button class="retry-btn" onclick="location.reload()">
-                        <i class="fas fa-redo"></i> Reload
-                    </button>
-                </div>
-            `;
-        }
-
-        function showErrorState() {
-            elements.reelsContainer.innerHTML = `
-                <div class="error-state">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h3>Failed to Load</h3>
-                    <p>Something went wrong. Please try again.</p>
-                    <button class="retry-btn" onclick="location.reload()">
-                        <i class="fas fa-redo"></i> Retry
-                    </button>
-                </div>
-            `;
-        }
-
-        // ==================== INITIALIZE ====================
-        document.addEventListener('DOMContentLoaded', initApp);
-
-        // Handle visibility change
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                // Pause all videos when tab is hidden
-                document.querySelectorAll('.reel-video').forEach(video => {
-                    if (!video.classList.contains('youtube-video') && !video.paused) {
-                        video.pause();
-                    }
-                });
+            if (entry.isIntersecting) {
+                hydrateSecureVideo(video);
+                if (video.paused) video.play().catch(() => {});
+            } else {
+                if (!video.paused) video.pause();
             }
         });
+    }, options);
 
-        // Handle page unload
-        window.addEventListener('beforeunload', () => {
-            document.querySelectorAll('.reel-video').forEach(video => {
-                if (!video.classList.contains('youtube-video') && !video.paused) {
-                    video.pause();
-                }
-            });
-        });
+    document.querySelectorAll('.reel').forEach(reel => observer.observe(reel));
+}
+
+// ==================== SCROLL OBSERVER ====================
+function setupScrollObserver() {
+    let scrollTimeout;
+    elements.reelsContainer.addEventListener('scroll', () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            const scrollTop = elements.reelsContainer.scrollTop;
+            const scrollHeight = elements.reelsContainer.scrollHeight;
+            const clientHeight = elements.reelsContainer.clientHeight;
+
+            if (scrollHeight - scrollTop - clientHeight < clientHeight * 2) addMoreReels();
+        }, 150);
+    });
+}
+
+function addMoreReels() {
+    const currentCount = document.querySelectorAll('.reel').length;
+    for (let i = 0; i < 5; i++) {
+        const post = VIDEO_POSTS[Math.floor(Math.random() * VIDEO_POSTS.length)];
+        const newIndex = currentCount + i;
+        elements.reelsContainer.appendChild(createReelElement(post, newIndex));
+    }
+    setTimeout(() => setupVideoControl(), 100);
+}
+
+// ==================== INTERACTIONS ====================
+function handleLike(postId, button) {
+    if (!currentUser) return alert('Please login to like videos!');
+    const post = VIDEO_POSTS.find(p => p.id === postId);
+    if (!post) return;
+
+    const icon = button.querySelector('i');
+    const countSpan = button.querySelector('.action-count');
+    const isLiked = currentUser.likedPosts.includes(postId);
+
+    if (isLiked) {
+        currentUser.likedPosts = currentUser.likedPosts.filter(id => id !== postId);
+        icon.className = 'far fa-heart';
+        button.classList.remove('liked');
+        post.likes = Math.max(0, (post.likes || 1) - 1);
+    } else {
+        currentUser.likedPosts.push(postId);
+        icon.className = 'fas fa-heart';
+        button.classList.add('liked');
+        post.likes = (post.likes || 0) + 1;
+    }
+
+    countSpan.textContent = formatCount(post.likes);
+    saveUserData();
+}
+
+function showDoubleTapHeart(reel) {
+    const heart = document.createElement('div');
+    heart.className = 'double-tap-heart';
+    heart.innerHTML = '<i class="fas fa-heart"></i>';
+    reel.appendChild(heart);
+    setTimeout(() => heart.remove(), 800);
+}
+
+async function shareReel(postId) {
+    const post = VIDEO_POSTS.find(p => p.id === postId);
+    if (!post) return;
+    const shareUrl = `https://penutcreation.github.io/MEKO/?share=${postId}`;
+    const shareText = `Check out this video on Meko Reels!`;
+
+    try {
+        if (navigator.share) await navigator.share({ title: 'Meko Reels', text: shareText, url: shareUrl });
+        else {
+            await navigator.clipboard.writeText(shareUrl);
+            alert('Link copied to clipboard!');
+        }
+    } catch {
+        prompt('Copy this link:', shareUrl);
+    }
+}
+
+// ==================== HELPERS ====================
+function formatCount(num) {
+    if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+    if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+    return num.toString();
+}
+
+function saveUserData() {
+    if (currentUser) localStorage.setItem('meko-current-user', JSON.stringify(currentUser));
+}
+
+function showLoading(show) {
+    elements.loadingIndicator.style.display = show ? 'block' : 'none';
+}
+
+function showNoVideosMessage() {
+    elements.reelsContainer.innerHTML = `
+        <div class="empty-state">
+            <i class="fas fa-video-slash"></i>
+            <h3>No Videos Found</h3>
+            <p>There are no video posts available yet. Check back later!</p>
+            <button class="retry-btn" onclick="location.reload()">
+                <i class="fas fa-redo"></i> Reload
+            </button>
+        </div>`;
+}
+
+function showErrorState() {
+    elements.reelsContainer.innerHTML = `
+        <div class="error-state">
+            <i class="fas fa-exclamation-triangle"></i>
+            <h3>Failed to Load</h3>
+            <p>Something went wrong. Please try again.</p>
+            <button class="retry-btn" onclick="location.reload()">
+                <i class="fas fa-redo"></i> Retry
+            </button>
+        </div>`;
+}
+
+// ==================== INITIALIZE ====================
+document.addEventListener('DOMContentLoaded', initApp);
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) document.querySelectorAll('.reel-video').forEach(v => !v.classList.contains('youtube-video') && !v.paused && v.pause());
+});
+
+window.addEventListener('beforeunload', () => {
+    document.querySelectorAll('.reel-video').forEach(v => !v.classList.contains('youtube-video') && !v.paused && v.pause());
+});
     </script>
 </body>
 </html>
