@@ -9,10 +9,6 @@ let displayedPosts = new Set();
 let DATABASEPOSTS = []; // Initialize as empty array
 let sharedPostId = null;
 
-// Video security constants
-const VIDEO_PROXY_URL = '/api/video-proxy'; // Your backend endpoint
-const VIDEO_ENCRYPTION_KEY = 'meko-secure-video-key-2024'; // Change this in production
-
 // Store all registered users in localStorage
 const USERS_KEY = 'meko-registered-users';
 const CURRENT_USER_KEY = 'meko-current-user';
@@ -91,289 +87,220 @@ const elements = {
 // ==================== VIDEO SECURITY FUNCTIONS ====================
 
 /**
- * Encrypt video URL using Base64 and simple XOR encryption
+ * Generate secure token for video URL hiding
  */
- 
-function encryptVideoUrl(videoUrl, postId) {
+function generateSecureVideoToken(videoUrl, postId) {
     try {
-        // Create payload with timestamp to prevent replay attacks
-        const payload = {
-            url: videoUrl,
-            postId: postId,
-            timestamp: Date.now(),
-            expire: Date.now() + (24 * 60 * 60 * 1000) // 24 hours expiry
-        };
-        
-        // Convert to JSON and encrypt
-        const jsonString = JSON.stringify(payload);
-        const encoded = btoa(encodeURIComponent(jsonString));
-        
-        // Simple XOR encryption for additional security
-        let encrypted = '';
-        const key = VIDEO_ENCRYPTION_KEY;
-        
-        for (let i = 0; i < encoded.length; i++) {
-            const keyChar = key.charCodeAt(i % key.length);
-            const encodedChar = encoded.charCodeAt(i);
-            encrypted += String.fromCharCode(encodedChar ^ keyChar);
-        }
-        
-        return btoa(encrypted);
+        const payload = JSON.stringify({
+            src: videoUrl,
+            pid: postId,
+            exp: Date.now() + (1000 * 60 * 10) // 10 min expiry
+        });
+        return btoa(payload.split('').reverse().join(''));
     } catch (error) {
-        console.error('Error encrypting video URL:', error);
+        console.error('Error generating video token:', error);
         return null;
     }
 }
 
 /**
- * Generate secure token for video playback
+ * Decode secure video token
  */
-function generateSecureVideoToken(videoUrl, postId) {
-    if (!videoUrl) return null;
-    
-    const encrypted = encryptVideoUrl(videoUrl, postId);
-    if (!encrypted) return null;
-    
-    // Add random suffix to make tokens unique
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    return `${encrypted}_${randomSuffix}`;
+ 
+function decodeSecureVideoToken(token) {
+    try {
+        const decoded = atob(token).split('').reverse().join('');
+        const data = JSON.parse(decoded);
+        if (Date.now() > data.exp) {
+            console.warn('Video token expired');
+            return null;
+        }
+        return data.src;
+    } catch (error) {
+        console.error('Error decoding video token:', error);
+        return null;
+    }
 }
 
 /**
- * Process secure video tokens when videos come into view
+ * Load secure video when visible - PROTECTED VERSION
+ */
+ function loadSecureVideo(videoElement, secureToken) {
+    if (videoElement.dataset.loaded) return;
+    
+    try {
+        // Set loading poster
+
+        // Decode to get real URL
+        const url = decodeSecureVideoToken(secureToken);
+        
+        if (url) {
+            // Set the src - THIS IS NECESSARY!
+            videoElement.src = url;
+            videoElement.load();
+            videoElement.dataset.loaded = "1";
+        } else {
+            videoElement.poster = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMxMTEiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+RXJyb3IgbG9hZGluZyB2aWRlbzwvdGV4dD48L3N2Zz4=';
+        }
+    } catch (error) {
+        console.error('Error loading secure video:', error);
+    }
+}
+/**
+ * Video observer for lazy loading
  */
 function setupVideoObserver() {
-    const videoObserver = new IntersectionObserver((entries) => {
+    const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
+            const video = entry.target;
             if (entry.isIntersecting) {
-                const video = entry.target;
-                const secureToken = video.dataset.src;
-                
-                if (secureToken && !video.src) {
-                    loadSecureVideo(video, secureToken);
+                // For secure videos
+                if (video.classList.contains('secure-video') && video.dataset.src) {
+                    loadSecureVideo(video, video.dataset.src);
                 }
                 
                 // Auto-play when visible
-                if (video.paused) {
+                if (video.paused && video.src) {
                     video.play().catch(e => {
-                        console.log('Auto-play blocked:', e);
+                        // Auto-play blocked, this is normal
+                        console.log('Video auto-play blocked:', e.name);
                     });
                 }
             } else {
                 // Pause when not visible
-                const video = entry.target;
                 if (!video.paused) {
                     video.pause();
                 }
             }
         });
-    }, {
-        threshold: 0.5,
-        rootMargin: '100px'
+    }, { 
+        threshold: 0.75,
+        rootMargin: '50px'
     });
     
-    return videoObserver;
-}
-
-// Initialize video observer
-let videoObserver = null;
-
-/**
- * Load secure video by decrypting token and fetching actual source
- */
- async function loadSecureVideo(videoElement, secureToken) {
-    try {
-        // Loading poster
-        videoElement.poster =
-          'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMwMDAiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE2IiBmaWxsPSIjZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+TWVrbyBOZXR3b3JrPC90ZXh0Pjwvc3ZnPg==';
-
-        const encryptedBase64 = secureToken.split('_')[0];
-        if (!encryptedBase64) return;
-
-        const actualVideoUrl = await decryptAndFetchVideoUrl(encryptedBase64);
-
-        if (!actualVideoUrl) {
-            videoElement.poster =
-              'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMxMTEiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+RXJyb3IgbG9hZGluZyB2aWRlbzwvdGV4dD48L3N2Zz4=';
-            return;
-        }
-
-        /* =============================
-           CREATE POSTER FROM VIDEO
-           ============================= */
-
-        const tempVideo = document.createElement("video");
-        tempVideo.src = actualVideoUrl;
-        tempVideo.muted = true;
-        tempVideo.playsInline = true;
-        tempVideo.crossOrigin = "anonymous";
-
-        tempVideo.addEventListener("loadeddata", () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = tempVideo.videoWidth;
-            canvas.height = tempVideo.videoHeight;
-
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-
-            // Set poster from first frame
-            videoElement.poster = canvas.toDataURL("image/jpeg", 0.85);
-
-            // Now load real video
-            videoElement.src = actualVideoUrl;
-            videoElement.load();
-        });
-
-    } catch (error) {
-        console.error('Error loading secure video:', error);
-    }
+    return observer;
 }
 
 /**
- * Decrypt and fetch actual video URL
- */
-async function decryptAndFetchVideoUrl(encryptedBase64) {
-    try {
-        // Method 1: Try to decrypt locally first
-        const decrypted = await decryptVideoToken(encryptedBase64);
-        if (decrypted && decrypted.url) {
-            return decrypted.url;
-        }
-        
-        // Method 2: Fetch from proxy server if local decryption fails
-        return await fetchVideoFromProxy(encryptedBase64);
-        
-    } catch (error) {
-        console.error('Error decrypting video URL:', error);
-        return null;
-    }
-}
-
-/**
- * Decrypt video token locally
- */
-async function decryptVideoToken(encryptedBase64) {
-    try {
-        // Reverse the XOR encryption
-        const encrypted = atob(encryptedBase64);
-        let decrypted = '';
-        const key = VIDEO_ENCRYPTION_KEY;
-        
-        for (let i = 0; i < encrypted.length; i++) {
-            const keyChar = key.charCodeAt(i % key.length);
-            const encryptedChar = encrypted.charCodeAt(i);
-            decrypted += String.fromCharCode(encryptedChar ^ keyChar);
-        }
-        
-        // Decode Base64 and parse JSON
-        const decoded = decodeURIComponent(atob(decrypted));
-        const payload = JSON.parse(decoded);
-        
-        // Check if token is expired
-        if (payload.expire && Date.now() > payload.expire) {
-            console.error('Video token has expired');
-            return null;
-        }
-        
-        return payload;
-    } catch (error) {
-        console.error('Local decryption failed:', error);
-        return null;
-    }
-}
-
-/**
- * Fetch video URL from proxy server
- */
-async function fetchVideoFromProxy(encryptedBase64) {
-    try {
-        if (!VIDEO_PROXY_URL) {
-            console.error('Video proxy URL not configured');
-            return null;
-        }
-        
-        const response = await fetch(VIDEO_PROXY_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getAuthToken()}`
-            },
-            body: JSON.stringify({
-                token: encryptedBase64,
-                timestamp: Date.now()
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Proxy returned ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && data.videoUrl) {
-            return data.videoUrl;
-        } else {
-            throw new Error(data.error || 'Invalid response from proxy');
-        }
-    } catch (error) {
-        console.error('Error fetching from proxy:', error);
-        return null;
-    }
-}
-
-/**
- * Get authentication token for current user
- */
-function getAuthToken() {
-    if (currentUser && !currentUser.isGuest) {
-        // In a real app, you'd have a proper JWT or session token
-        return btoa(`${currentUser.username}:${Date.now()}`);
-    }
-    return 'guest';
-}
-
-/**
- * Render media content with secure video handling
+ * Render media content with SECURE video handling - FIXED VERSION
  */
 function renderMediaContent(post, postId) {
     if (post.iframe) {
         return `<div class="post-media"><iframe class="post-iframe" src="${post.iframe}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
-    } else if (post.video) {
-        // Generate secure token for the video
+    } 
+    else if (post.video) {
+        // ALWAYS use secure token - no fallback!
         const secureToken = generateSecureVideoToken(post.video, postId);
         
-        if (secureToken) {
-            return `<div class="post-media">
-                <video class="auto-pause-video secure-video" 
-                       data-src="${secureToken}" 
-                       loop controls 
-                       controlsList="nodownload noplaybackrate" 
-                       oncontextmenu="return false;" 
-                       disablePictureInPicture 
-                       style="-webkit-touch-callout:none; -webkit-user-select:none; user-select:none;"
-                       preload="metadata">
-                       <div class="Ksjdu Ksnskd Ksksj Kdnd Ksnd Ksksksld Ksksnd
-                       kddk"></div>
-                    Your browser does not support the video tag.
-                </video>
-                <div class="video-protection-overlay"></div>
-            </div>`;
-        } else {
-            // Fallback to regular video if secure token generation fails
-            return `<div class="post-media">
-                <video class="auto-pause-video" 
-                       src="${post.video}" 
-                       loop controls 
-                       controlsList="nodownload noplaybackrate" 
-                       oncontextmenu="return false;">
-                    Your browser does not support the video tag.
-                </video>
+        // If token generation fails, show placeholder
+        if (!secureToken) {
+            console.error('Failed to generate secure token for video');
+            return `<div class="post-media video-error">
+                <div style="padding: 2rem; text-align: center; background: var(--bg-secondary); border-radius: 0.5rem;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 2rem; color: var(--danger); margin-bottom: 1rem;"></i>
+                    <p style="color: var(--text-secondary);">Video loading error</p>
+                </div>
             </div>`;
         }
-    } else if (post.image) {
+        
+        // CRITICAL: SECURE VERSION ONLY - NO src ATTRIBUTE AT ALL!
+        // We'll also add a MutationObserver to prevent other scripts from adding src
+        const videoId = `secure-video-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        return `<div class="post-media" id="media-container-${videoId}">
+            <video class="auto-pause-video secure-video" 
+                   data-src="${secureToken}" 
+                   data-video-id="${videoId}"
+                   loop 
+                   controls 
+                   controlsList="nodownload noplaybackrate" 
+                   oncontextmenu="return false;" 
+                   disablePictureInPicture 
+                   style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; pointer-events: auto;"
+                   preload="metadata">
+                Your browser does not support the video tag.
+            </video>
+            <div class="video-protection-overlay"></div>
+        </div>
+        <script>
+            // Immediately protect this video from other scripts
+            (function() {
+                const video = document.querySelector('[data-video-id="${videoId}"]');
+                if (video) {
+                    // Remove ANY src attribute that might have been added
+                    video.removeAttribute('src');
+                    
+                    // Watch for attempts to add src
+                    const observer = new MutationObserver(function(mutations) {
+                        mutations.forEach(function(mutation) {
+                            if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
+                                if (!video.dataset.loaded) {
+                                    console.log('Blocked attempt to set src on secure video:', video.dataset.videoId);
+                                    video.removeAttribute('src');
+                                }
+                            }
+                        });
+                    });
+                    
+                    observer.observe(video, { attributes: true });
+                    
+                    // Clean up after video loads
+                    video.addEventListener('loadeddata', function() {
+                        setTimeout(() => observer.disconnect(), 500);
+                    });
+                }
+            })();
+        </script>`;
+    } 
+    else if (post.image) {
         return `<div class="post-media"><img src="${post.image}" alt="Post image" loading="lazy" oncontextmenu="return false;" crossorigin="anonymous"></div>`;
     }
     return '';
+}
+
+// ==================== OBSERVER INITIALIZATION ====================
+
+// Initialize video observer globally
+let videoObserver = null;
+
+function initializeVideoObserver() {
+    if (!videoObserver) {
+        videoObserver = setupVideoObserver();
+        
+        // Observe existing secure videos
+        document.querySelectorAll('.secure-video[data-src]').forEach(video => {
+            if (!video.dataset.loaded) {
+                videoObserver.observe(video);
+            }
+        });
+    }
+    return videoObserver;
+}
+
+// Call this after posts are rendered
+function setupVideoObservation() {
+    const observer = initializeVideoObserver();
+    
+    // Observe all secure videos on the page
+    document.querySelectorAll('.secure-video[data-src]').forEach(video => {
+        if (!video.dataset.loaded) {
+            observer.observe(video);
+        }
+    });
+    
+    console.log('Video observer setup complete');
+}
+
+// ==================== ADD THIS FUNCTION TO CLEAN UP VIDEOS ====================
+
+function cleanupVideoAttributes() {
+    // Find and remove src attributes from all secure videos that shouldn't have them
+    document.querySelectorAll('.secure-video[data-src]').forEach(video => {
+        if (video.hasAttribute('src') && !video.dataset.loaded) {
+            console.log('Removing unauthorized src attribute from video:', video.dataset.src);
+            video.removeAttribute('src');
+        }
+    });
 }
 
 // ==================== AUTH FUNCTIONS ====================
@@ -1551,7 +1478,7 @@ function createPostElement(post, postId) {
         if (adType === 'API_AD') {
             return `<div id="ad-${postId}" class="ad-script-container"></div>`;
         }
-        return renderMediaContent(post, postId); // Pass postId here
+        return renderMediaContent(post, postId);
     };
     
     postElement.innerHTML = `  
@@ -3377,4 +3304,15 @@ function debugFetch() {
             }
         })
         .catch(console.error);
-                }
+}
+
+// ==================== ADD THIS: CLEANUP ON PAGE LOAD ====================
+
+// Run cleanup after a short delay to catch other scripts
+setTimeout(() => {
+    cleanupVideoAttributes();
+    setupVideoObservation();
+}, 500);
+
+// Also run cleanup periodically
+setInterval(cleanupVideoAttributes, 1000);
