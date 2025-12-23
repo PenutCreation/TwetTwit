@@ -146,6 +146,7 @@ function toggleUserMenu() {
 
 // ==================== SEARCH FUNCTIONS ====================
 
+// Search functionality
 function toggleSearchBar() {
     const searchBar = document.querySelector('.search-bar');
     if (searchBar) {
@@ -153,12 +154,6 @@ function toggleSearchBar() {
         if (searchBar.classList.contains('active')) {
             if (elements.searchInput) elements.searchInput.focus();
         }
-    }
-}
-
-function showSearchResults() {
-    if (elements.searchInput && elements.searchInput.value.trim().length > 0) {
-        if (elements.searchResults) elements.searchResults.style.display = 'block';
     }
 }
 
@@ -172,10 +167,261 @@ function handleSearch() {
         return;
     }
     
-    // Basic search implementation
-    // You'll need to implement search logic based on your data
-    console.log('Searching for:', query);
+    const searchResults = {
+        profiles: searchProfiles(query),
+        topics: searchTopics(query),
+        posts: searchPosts(query)
+    };
+    
+    displayEnhancedSearchResults(searchResults, query);
 }
+
+function searchProfiles(query) {
+    const uniqueUsers = new Map();
+    
+    DATABASEPOSTS.forEach(post => {
+        if (!uniqueUsers.has(post.username)) {
+            const userPosts = DATABASEPOSTS.filter(p => p.username === post.username);
+            const totalLikes = userPosts.reduce((sum, p) => sum + p.likes, 0);
+            
+            uniqueUsers.set(post.username, {
+                name: post.name,
+                username: post.username,
+                postsCount: userPosts.length,
+                totalLikes: totalLikes,
+                type: 'profile'
+            });
+        }
+    });
+    
+    return Array.from(uniqueUsers.values()).filter(user => 
+        user.name.toLowerCase().includes(query) || 
+        user.username.toLowerCase().includes(query)
+    );
+}
+
+function searchTopics(query) {
+    const topics = {};
+    
+    DATABASEPOSTS.forEach(post => {
+        if (post.topic && post.topic.toLowerCase().includes(query)) {
+            topics[post.topic] = (topics[post.topic] || 0) + 1;
+        }
+    });
+    
+    return Object.entries(topics)
+        .map(([topic, count]) => ({
+            name: `#${topic}`,
+            topic: topic,
+            postsCount: count,
+            type: 'topic'
+        }))
+        .sort((a, b) => b.postsCount - a.postsCount);
+}
+
+function searchPosts(query) {
+    return allPosts
+        .filter(post => 
+            (post.content && post.content.toLowerCase().includes(query)) ||
+            (post.topic && post.topic.toLowerCase().includes(query))
+        )
+        .map(post => ({
+            name: post.name,
+            username: post.username,
+            content: post.content ? post.content.substring(0, 100) + (post.content.length > 100 ? '...' : '') : '',
+            datePost: post.datePost,
+            likes: post.likes,
+            type: 'post',
+            postId: post.id
+        }))
+        .slice(0, 5);
+}
+
+function displayEnhancedSearchResults(results, query) {
+    if (!elements.searchResults) return;
+    
+    const { profiles, topics, posts } = results;
+    
+    elements.searchResults.innerHTML = '';
+    
+    let hasResults = false;
+    
+    // Show profiles section
+    if (profiles.length > 0) {
+        hasResults = true;
+        const profileSection = createSearchSection('Profiles', 'user');
+        profiles.slice(0, 5).forEach(profile => {
+            profileSection.appendChild(createProfileResultItem(profile));
+        });
+        elements.searchResults.appendChild(profileSection);
+    }
+    
+    // Show topics section
+    if (topics.length > 0) {
+        hasResults = true;
+        const topicSection = createSearchSection('Topics', 'hashtag');
+        topics.slice(0, 5).forEach(topic => {
+            topicSection.appendChild(createTopicResultItem(topic));
+        });
+        elements.searchResults.appendChild(topicSection);
+    }
+    
+    // Show posts section
+    if (posts.length > 0) {
+        hasResults = true;
+        const postSection = createSearchSection('Posts', 'file-alt');
+        posts.forEach(post => {
+            postSection.appendChild(createPostResultItem(post));
+        });
+        elements.searchResults.appendChild(postSection);
+    }
+    
+    // Show no results message
+    if (!hasResults) {
+        const noResults = document.createElement('div');
+        noResults.className = 'search-result-item';
+        noResults.innerHTML = `
+            <div style="text-align: center; padding: 1rem; color: var(--text-muted);">
+                <i class="fas fa-search" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                <div>No results found for "${query}"</div>
+            </div>
+        `;
+        elements.searchResults.appendChild(noResults);
+    }
+    
+    elements.searchResults.style.display = 'block';
+}
+
+function createSearchSection(title, icon) {
+    const section = document.createElement('div');
+    section.className = 'search-section';
+    section.innerHTML = `
+        <div class="search-section-header">
+            <i class="fas fa-${icon}"></i>
+            <span>${title}</span>
+        </div>
+    `;
+    return section;
+}
+
+function createProfileResultItem(profile) {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.innerHTML = `
+        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=1e3a8a&color=fff" alt="${profile.name}">
+        <div class="search-result-info">
+            <h4>${profile.name}</h4>
+            <span>@${profile.username}</span>
+            <div class="search-result-meta">
+                <span>${profile.postsCount} posts • ${profile.totalLikes.toLocaleString()} likes</span>
+            </div>
+        </div>
+    `;
+    
+    item.addEventListener('click', () => {
+        showUserProfile(profile.username, profile.name);
+        addToSearchHistory(profile.username, profile.name, 'profile');
+        if (elements.searchInput) elements.searchInput.value = '';
+        if (elements.searchResults) elements.searchResults.style.display = 'none';
+        document.querySelector('.search-bar')?.classList.remove('active');
+    });
+    
+    return item;
+}
+
+function createTopicResultItem(topic) {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.innerHTML = `
+        <div class="topic-icon">
+            <i class="fas fa-hashtag"></i>
+        </div>
+        <div class="search-result-info">
+            <h4>${topic.name}</h4>
+            <div class="search-result-meta">
+                <span>${topic.postsCount} posts</span>
+            </div>
+        </div>
+    `;
+    
+    item.addEventListener('click', () => {
+        filterPostsByTopic(topic.topic);
+        addToSearchHistory(topic.topic, topic.name, 'topic');
+        if (elements.searchInput) elements.searchInput.value = '';
+        if (elements.searchResults) elements.searchResults.style.display = 'none';
+        document.querySelector('.search-bar')?.classList.remove('active');
+    });
+    
+    return item;
+}
+
+function createPostResultItem(post) {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    const postDate = new Date(post.datePost).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
+    });
+    
+    item.innerHTML = `
+        <div class="post-icon">
+            <i class="fas fa-file-alt"></i>
+        </div>
+        <div class="search-result-info">
+            <h4>${post.name}</h4>
+            <span>@${post.username} • ${postDate}</span>
+            <div class="search-result-content">${post.content}</div>
+            <div class="search-result-meta">
+                <span><i class="fas fa-heart"></i> ${post.likes}</span>
+            </div>
+        </div>
+    `;
+    
+    item.addEventListener('click', () => {
+        scrollToPost(post.postId);
+        addToSearchHistory(post.username, `Post by ${post.name}`, 'post');
+        if (elements.searchInput) elements.searchInput.value = '';
+        if (elements.searchResults) elements.searchResults.style.display = 'none';
+        document.querySelector('.search-bar')?.classList.remove('active');
+    });
+    
+    return item;
+}
+
+function showSearchResults() {
+    if (elements.searchInput && elements.searchInput.value.trim().length > 0) {
+        if (elements.searchResults) elements.searchResults.style.display = 'block';
+    }
+}
+
+// Search history
+function addToSearchHistory(identifier, name, type) {
+    if (!currentUser) return;
+    
+    if (!currentUser.searchHistory) currentUser.searchHistory = [];
+    
+    const searchItem = { 
+        identifier, 
+        name, 
+        type, 
+        timestamp: new Date() 
+    };
+    
+    // Remove if already exists
+    currentUser.searchHistory = currentUser.searchHistory.filter(item => 
+        !(item.identifier === identifier && item.type === type)
+    );
+    
+    // Add to beginning
+    currentUser.searchHistory.unshift(searchItem);
+    
+    // Keep only last 5 items
+    currentUser.searchHistory = currentUser.searchHistory.slice(0, 5);
+    
+    saveCurrentUser();
+    loadSearchHistory();
+}
+
 
 // ==================== POST CREATION FUNCTIONS ====================
 
@@ -1304,14 +1550,36 @@ function renderMediaContent(post, postId) {
 /**
  * Extract video posts from database
  */
+ /**
+ * Extract video posts from database
+ */
 function extractVideoPosts() {
     if (!DATABASEPOSTS || DATABASEPOSTS.length === 0) return [];
     
     return DATABASEPOSTS.filter(post => {
-        return post.video || (post.iframe && post.iframe.includes('youtube.com/embed'));
+        // Check for direct video URLs
+        if (post.video) return true;
+        
+        // Check for iframe/embedded videos (YouTube, Vimeo, etc.)
+        if (post.iframe) {
+            const iframeStr = post.iframe.toLowerCase();
+            return iframeStr.includes('youtube.com/embed') || 
+                   iframeStr.includes('youtu.be') ||
+                   iframeStr.includes('vimeo.com') ||
+                   iframeStr.includes('player.vimeo.com') ||
+                   iframeStr.includes('video') ||
+                   iframeStr.includes('embed');
+        }
+        
+        // Check for video file extensions in any media field
+        if (post.image || post.media) {
+            const mediaUrl = (post.image || post.media || '').toLowerCase();
+            return mediaUrl.match(/\.(mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v)$/);
+        }
+        
+        return false;
     });
 }
-
 /**
  * Shuffle array without seed (true random)
  */
@@ -1345,20 +1613,30 @@ function extractVideoPosts() {
 /**
  * Show only video posts
  */
+ /**
+ * Show only video posts
+ */
  
+    // ... rest of your showVideoPosts function ...
+
 function showVideoPosts() {
     isVideoMode = true;
     videoPosts = extractVideoPosts();
+    resetPagination();
+    console.log(`Found ${videoPosts.length} video posts`);
+    
+    if (videoPosts.length === 0) {
+        alert('No video posts found!');
+        return;
+    }
     
     // Shuffle video posts randomly
     videoPosts = shuffleArrayRandomly(videoPosts);
     
     // Assign unique IDs to video posts
     videoPosts.forEach((post, index) => {
-    // Only assign videoId if you need it for DOM element reference
-    post.videoId = post.id || `vid-${index}-${Date.now()}`;
-});
-  
+        post.videoId = post.id || `vid-${index}-${Date.now()}`;
+    });
     
     if (elements.postsFeed) {
         elements.postsFeed.innerHTML = '';
@@ -1372,12 +1650,10 @@ function showVideoPosts() {
             <div style="text-align: center; padding: 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem;">
                 <i class="fas fa-film" style="font-size: 2rem; color: var(--accent); margin-bottom: 0.5rem;"></i>
                 <h2 style="margin-bottom: 0.5rem; color: var(--text-primary);">Video Posts</h2>
-                <p style="color: var(--text-secondary);">Post With Videos Only
-                Activated</p>
-                ${videoPosts.length === 0 ? 
-                    '<p style="color: var(--text-muted); margin-top: 0.5rem;">No video posts found</p>' : 
-                    ''
-                }
+                <p style="color: var(--text-secondary);">${videoPosts.length} video posts available</p>
+                <button class="btn btn-secondary" onclick="showAllPosts()" style="margin-top: 0.5rem; padding: 0.5rem 1rem;">
+                    <i class="fas fa-arrow-left"></i> Back to All Posts
+                </button>
             </div>
         `;
         elements.postsFeed.appendChild(videoHeader);
@@ -1388,61 +1664,105 @@ function showVideoPosts() {
     
     // Update navigation active states
     updateVideoNavState(true);
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-
 /**
  * Load more video posts
  */
-function loadVideoPosts() {
-    if (!elements.postsFeed || videoPosts.length === 0) return;
+ /**
+ * Load more video posts
+ */
+ async function loadVideoPosts() {
+    if (!elements.postsFeed || isLoading || !hasMorePosts || videoPosts.length === 0) {
+        console.log('Skipping video load');
+        return;
+    }
+    
+    isLoading = true;
+    
+    if (elements.loadMoreBtn) {
+        elements.loadMoreBtn.disabled = true;
+        elements.loadMoreBtn.textContent = 'Loading videos...';
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 300));
     
     const startIndex = videoPage * postsPerPage;
     const endIndex = startIndex + postsPerPage;
     
-    // Filter out already displayed posts
     const availablePosts = videoPosts.filter(post => !displayedVideoPosts.has(post.videoId));
     
     if (availablePosts.length === 0) {
+        hasMorePosts = false;
+        
         if (elements.loadMoreBtn) {
             elements.loadMoreBtn.textContent = 'No more videos';
             elements.loadMoreBtn.disabled = true;
+            scrollObserver.unobserve(elements.loadMoreBtn);
         }
+        
+        isLoading = false;
         return;
     }
     
     const postsToShow = availablePosts.slice(startIndex, endIndex);
+    const fragment = document.createDocumentFragment();
     
     postsToShow.forEach(post => {
         const postElement = createPostElement(post, post.videoId);
-        elements.postsFeed.appendChild(postElement);
+        fragment.appendChild(postElement);
         displayedVideoPosts.add(post.videoId);
-        
-        // Initialize custom video player for this post
-        setTimeout(() => {
-            const video = postElement.querySelector('video');
-            if (video) {
-                new CustomVideoPlayer(video);
-            }
-        }, 100);
+        postElement.dataset.needsVideoInit = 'true';
     });
+    
+    elements.postsFeed.appendChild(fragment);
+    
+    setTimeout(() => {
+        document.querySelectorAll('[data-needs-video-init="true"]').forEach(element => {
+            const video = element.querySelector('video');
+            if (video) {
+                try {
+                    new CustomVideoPlayer(video);
+                    element.removeAttribute('data-needs-video-init');
+                } catch (error) {
+                    console.error('Error initializing video player:', error);
+                }
+            }
+        });
+    }, 50);
     
     videoPage++;
     
     if (elements.loadMoreBtn) {
         const remainingVideos = videoPosts.length - displayedVideoPosts.size;
-        elements.loadMoreBtn.disabled = remainingVideos === 0;
-        elements.loadMoreBtn.textContent = remainingVideos === 0 ? 
-            'No more videos' : 
-            `Load More Videos`;
+        hasMorePosts = remainingVideos > 0;
+        
+        elements.loadMoreBtn.disabled = !hasMorePosts;
+        elements.loadMoreBtn.textContent = hasMorePosts ? 
+            `Load More Videos (${remainingVideos} remaining)` : 
+            'No more videos';
+        
+        if (!hasMorePosts) {
+            scrollObserver.unobserve(elements.loadMoreBtn);
+        }
     }
+    
+    setTimeout(() => {
+        isLoading = false;
+        
+        if (elements.loadMoreBtn && hasMorePosts) {
+            elements.loadMoreBtn.disabled = false;
+        }
+    }, 500);
 }
-
 /**
  * Show all posts (normal mode)
  */
 function showAllPosts() {
     isVideoMode = false;
-    
+resetPagination();
     if (elements.postsFeed) {
         elements.postsFeed.innerHTML = '';
         currentPage = 0;
@@ -1454,6 +1774,8 @@ function showAllPosts() {
     updateVideoNavState(false);
 }
 
+    
+    
 /**
  * Update navigation states
  */
@@ -1900,36 +2222,56 @@ function initializePosts() {
     
     
 }
+// Add these variables at the top with your other globals
+let isLoading = false;
+let hasMorePosts = true;
 
-// 1. Create the Observer
+// 1. Create the Observer with better configuration
 const scrollObserver = new IntersectionObserver((entries) => {
-    // entries[0] is the element we are watching
-    if (entries[0].isIntersecting) {
+    // Only trigger if button is intersecting AND we're not already loading
+    if (entries[0].isIntersecting && !isLoading && hasMorePosts) {
         console.log("Bottom reached! Loading more...");
         loadPosts();
     }
 }, {
-    rootMargin: '200px', // Start loading 200px before the user reaches the bottom
-    threshold: 0.1       // Trigger when 10% of the target is visible
+    rootMargin: '100px', // Reduced from 200px to be less sensitive
+    threshold: 0.5       // Increased from 0.1 to 0.5 for more reliable triggering
 });
 
 // 2. Tell it what to watch
-// We use your existing loadMoreBtn as the "anchor"
 if (elements.loadMoreBtn) {
     scrollObserver.observe(elements.loadMoreBtn);
 }
 
-function loadPosts() {
-    if (!elements.postsFeed) return;
+// 3. Improved loadPosts function with loading state
+async function loadPosts() {
+    if (!elements.postsFeed || isLoading || !hasMorePosts) {
+        console.log('Skipping load - already loading or no more posts');
+        return;
+    }
+    
+    // Set loading state
+    isLoading = true;
+    
+    // Show loading indicator on button
+    if (elements.loadMoreBtn) {
+        elements.loadMoreBtn.disabled = true;
+        elements.loadMoreBtn.textContent = 'Loading...';
+    }
+    
+    // Add a small delay to prevent rapid successive loads
+    await new Promise(resolve => setTimeout(resolve, 300));
     
     if (allPosts.length === 0) {
         console.log('No posts available to load');
+        isLoading = false;
         return;
     }
     
     const startIndex = currentPage * postsPerPage;
     const endIndex = startIndex + postsPerPage;
     
+    // Get posts that haven't been displayed
     const postsToShow = allPosts
         .filter(post => !displayedPosts.has(post.id))
         .slice(startIndex, endIndex);
@@ -1937,40 +2279,79 @@ function loadPosts() {
     console.log(`Loading ${postsToShow.length} posts, page ${currentPage + 1}`);
     
     if (postsToShow.length === 0) {
+        console.log('No more posts to load');
+        hasMorePosts = false;
+        
         if (elements.loadMoreBtn) {
             elements.loadMoreBtn.textContent = 'No more posts';
             elements.loadMoreBtn.disabled = true;
+            scrollObserver.unobserve(elements.loadMoreBtn); // Stop observing when done
         }
+        
+        isLoading = false;
         return;
     }
     
+    // Create a document fragment for batch DOM insertion (better performance)
+    const fragment = document.createDocumentFragment();
+    
     postsToShow.forEach(post => {
         const postElement = createPostElement(post, post.id);
-        elements.postsFeed.appendChild(postElement);
+        fragment.appendChild(postElement);
         displayedPosts.add(post.id);
         
-        addShareButtonToPost(postElement, post.id);
-        
-        // Initialize custom video player if this is a video post
+        // Mark element for video initialization
         if (post.video || (post.iframe && post.iframe.includes('youtube.com/embed'))) {
-            setTimeout(() => {
-                const video = postElement.querySelector('video');
-                if (video) {
-                    new CustomVideoPlayer(video);
-                }
-            }, 100);
+            postElement.dataset.needsVideoInit = 'true';
         }
     });
     
+    // Append all posts at once
+    elements.postsFeed.appendChild(fragment);
+    
+    // Initialize video players after DOM update
+    setTimeout(() => {
+        document.querySelectorAll('[data-needs-video-init="true"]').forEach(element => {
+            const video = element.querySelector('video');
+            if (video) {
+                try {
+                    new CustomVideoPlayer(video);
+                    element.removeAttribute('data-needs-video-init');
+                } catch (error) {
+                    console.error('Error initializing video player:', error);
+                }
+            }
+        });
+    }, 50);
+    
     currentPage++;
     
+    // Update button state
     if (elements.loadMoreBtn) {
         const remainingPosts = allPosts.length - displayedPosts.size;
-        elements.loadMoreBtn.disabled = remainingPosts === 0;
-        elements.loadMoreBtn.textContent = remainingPosts === 0 ? 'No more posts' : `Reach me to Load More`;
+        hasMorePosts = remainingPosts > 0;
+        
+        elements.loadMoreBtn.disabled = !hasMorePosts;
+        elements.loadMoreBtn.textContent = hasMorePosts ? 
+            `Load More (${remainingPosts} remaining)` : 
+            'No more posts';
+        
+        if (!hasMorePosts) {
+            scrollObserver.unobserve(elements.loadMoreBtn);
+        }
     }
+    
+    // Reset loading state after a short delay
+    setTimeout(() => {
+        isLoading = false;
+        
+        if (elements.loadMoreBtn && hasMorePosts) {
+            elements.loadMoreBtn.disabled = false;
+        }
+    }, 500);
 }
 
+// 4. Add a manual load function for button click
 function loadMorePosts() {
     if (isVideoMode) {
         loadVideoPosts();
@@ -1978,6 +2359,45 @@ function loadMorePosts() {
         loadPosts();
     }
 }
+
+// 5. Reset function for when posts are refreshed
+function resetPagination() {
+    currentPage = 0;
+    isLoading = false;
+    hasMorePosts = true;
+    displayedPosts.clear();
+    
+    // Re-observe the button if needed
+    if (elements.loadMoreBtn && scrollObserver) {
+        elements.loadMoreBtn.textContent = 'Load More';
+        elements.loadMoreBtn.disabled = false;
+        scrollObserver.observe(elements.loadMoreBtn);
+    }
+}
+
+// 6. Also improve the video posts loading function
+
+
+// 7. Add a throttle function to prevent rapid scrolling triggers
+function throttle(func, limit) {
+    let inThrottle;
+    return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+// 8. Update your event listener setup
+
+// 9. Don't forget to call resetPagination when switching modes
+
+
+
 
 function createPostElement(post, postId) {
     const postElement = document.createElement('div');
@@ -2363,7 +2783,24 @@ function formatJoinedDate(date) {
 function setupEventListeners() {
     // Initialize video observer
     videoObserver = initializeVideoObserver();
+  if (elements.loadMoreBtn) {
+        // Use throttled version for button click
+        elements.loadMoreBtn.addEventListener('click', throttle(loadMorePosts, 1000));
+    }
     
+    // Also add a scroll listener as backup
+    window.addEventListener('scroll', throttle(() => {
+        // Calculate how close we are to bottom
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const bodyHeight = document.body.offsetHeight;
+        const distanceFromBottom = bodyHeight - scrollPosition;
+        
+        // If we're within 300px of bottom and not loading, trigger load
+        if (distanceFromBottom < 300 && !isLoading && hasMorePosts) {
+            console.log('Near bottom, triggering load...');
+            loadMorePosts();
+        }
+    }, 500));
     // Auth event listeners
     if (elements.authTabs) {
         elements.authTabs.forEach(tab => {
@@ -3205,3 +3642,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
