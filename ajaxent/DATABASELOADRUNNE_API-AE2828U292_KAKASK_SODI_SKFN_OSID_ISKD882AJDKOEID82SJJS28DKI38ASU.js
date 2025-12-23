@@ -1,7 +1,7 @@
 // main.js
 // Global variables
 let currentUser = null;
-let postsPerPage = 20;
+let postsPerPage = 1;
 let currentPage = 0;
 let currentMediaType = null;
 let allPosts = [];
@@ -1315,6 +1315,7 @@ function extractVideoPosts() {
 /**
  * Shuffle array without seed (true random)
  */
+ 
  function shuffleArrayRandomly(array) {
     const shuffled = [...array];
     const n = shuffled.length;
@@ -1894,27 +1895,28 @@ function initializePosts() {
     
     console.log(`Assigned IDs to ${allPosts.length} posts`);
     
-    const seed = Date.now() + Math.random();
-    allPosts = shuffleArray(allPosts, seed);
     
-    console.log(`Loaded ${allPosts.length} posts with seed: ${seed}`);
+    allPosts = shuffleArrayRandomly(allPosts);
+    
+    
 }
 
-function seededRandom(seed) {
-    let x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-}
-
-function shuffleArray(array, seed) {
-    const shuffled = [...array];
-    const randomFunc = seededRandom(seed);
-    
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(randomFunc * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+// 1. Create the Observer
+const scrollObserver = new IntersectionObserver((entries) => {
+    // entries[0] is the element we are watching
+    if (entries[0].isIntersecting) {
+        console.log("Bottom reached! Loading more...");
+        loadPosts();
     }
-    
-    return shuffled;
+}, {
+    rootMargin: '200px', // Start loading 200px before the user reaches the bottom
+    threshold: 0.1       // Trigger when 10% of the target is visible
+});
+
+// 2. Tell it what to watch
+// We use your existing loadMoreBtn as the "anchor"
+if (elements.loadMoreBtn) {
+    scrollObserver.observe(elements.loadMoreBtn);
 }
 
 function loadPosts() {
