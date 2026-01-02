@@ -2374,7 +2374,7 @@ async function loadPosts() {
         
         elements.loadMoreBtn.disabled = !hasMorePosts;
         elements.loadMoreBtn.textContent = hasMorePosts ? 
-            `Load More (${remainingPosts} remaining)` : 
+            `Load More` : 
             'No more posts';
         
         if (!hasMorePosts) {
